@@ -1,0 +1,29 @@
+.classpath
+.project
+.settings
+.DS_Store
+local.properties
+#libs
+obj
+bin
+gen
+tests/**/bin
+tests/**/gen
+
+# Yala
+res/values/yala.xml
+
+# iOS test apps
+*.xcuserstate
+
+# Gradle
+.gradle
+build
+bin
+
+# Android Studio
+*.iml
+*.idea
+
+# generic Java artifacts
+java/build
