@@ -3,10 +3,19 @@
 .settings
 .DS_Store
 local.properties
-#libs
+
+libs
 obj
 bin
 gen
+
+plugins/**/libs
+plugins/**/obj
+plugins/**/bin
+plugins/**/gen
+
+tests/**/libs
+tests/**/obj
 tests/**/bin
 tests/**/gen
 
