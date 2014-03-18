@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">Test ImageView</string>
+    <string name="bounds">Bounds only</string>
+    <string name="blur">Blur</string>
+    <string name="quantize">Quantize</string>
+    <string name="colorize">Colorize</string>
+    
+</resources>

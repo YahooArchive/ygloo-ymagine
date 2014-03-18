@@ -1,0 +1,24 @@
+# Ymagine specific recommended options
+-keepclasseswithmembers class * {
+    native <methods>;
+}
+
+# Ymagine/JNI
+-keep public class com.yahoo.ymagine.* {
+ public static *;
+ public static *;
+ private static *;
+}
+
+-keep public class com.yahoo.mobile.client.android.ymagine.* {
+ public static *;
+ public static *;
+ private static *;
+}
+
+# Keep inner class for Options
+-keep public class com.yahoo.mobile.client.android.ymagine.BitmapFactory$Options
+
+# or the more aggresive way
+-keep class com.yahoo.ymagine.** {*;}
+-keep class com.yahoo.mobile.client.android.ymagine.** {*;}

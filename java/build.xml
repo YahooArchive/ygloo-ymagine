@@ -1,0 +1,137 @@
+<project name="Ymagine" basedir="." default="main">
+    <condition property="target.os" value="darwin">
+        <os name="Mac OS X" />
+    </condition>
+    <condition property="target.os" value="linux">
+        <os name="linux" />
+    </condition>
+
+    <condition property="target.arch" value="x86_64">
+        <os arch="x86_64" />
+    </condition>
+    <condition property="target.arch" value="x86_64">
+        <os arch="amd64" />
+    </condition>
+
+    <property name="src.dir"     value="../src"/>
+    <property name="testsrc.dir" value="src"/>
+
+    <property name="target.name" value="${target.os}-${target.arch}"/>
+
+    <property name="build.dir"   value="build"/>
+    <property name="lib.dir"   value="lib"/>
+    <property name="libnative.dir"   value="../../../out/target/${target.name}"/>
+    <property name="classes.dir" value="${build.dir}/classes"/>
+    <property name="jar.dir"     value="${build.dir}/jar"/>
+    <property name="doc.dir"     value="${build.dir}/doc"/>
+    <property name="testdata.dir" value="../tests/data"/>
+
+    <property name="main-class"  value="com.yahoo.test.ymagine.Main"/>
+
+    <path id="project.classpath">
+        <pathelement location="${jar.dir}/${ant.project.name}.jar" />
+    </path>
+    <path id="test.classpath">
+        <pathelement location="${jar.dir}/${ant.project.name}.jar" />
+        <pathelement location="${jar.dir}/test.jar" />
+    </path>
+
+    <target name="clean">
+        <delete dir="${build.dir}"/>
+    </target>
+
+    <target name="compile">
+        <mkdir dir="${classes.dir}/main"/>
+        <javac destdir="${classes.dir}/main" >
+            <src>
+                <pathelement location="${src.dir}/com/yahoo/ymagine" /> 
+            </src>
+        </javac>
+    </target>
+
+    <target name="jar" depends="compile">
+        <mkdir dir="${jar.dir}"/>
+        <jar destfile="${jar.dir}/${ant.project.name}.jar" basedir="${classes.dir}/main">
+        </jar>
+    </target>
+
+    <target name="doc">
+        <mkdir dir="${doc.dir}"/>
+        <javadoc sourcepath="${src.dir}" destdir="${doc.dir}" />
+        <jar destfile="${jar.dir}/${ant.project.name}-javadoc.jar" basedir="${doc.dir}" />
+    </target>
+
+    <target name="test-compile" depends="jar">
+        <mkdir dir="${classes.dir}/test"/>
+        <javac
+            debug="true" srcdir="${testsrc.dir}/test"
+            destdir="${classes.dir}/test"
+            classpathref="project.classpath" />
+    </target>
+
+    <target name="test-jar" depends="test-compile">
+        <mkdir dir="${jar.dir}"/>
+        <jar destfile="${jar.dir}/test.jar" basedir="${classes.dir}/test">
+            <manifest>
+                <attribute name="Main-Class" value="${main-class}"/>
+            </manifest>
+        </jar>
+    </target>
+
+    <target name="test-transcode" depends="jar,test-jar">
+        <echo>OS architecture: ${target.name}</echo>
+
+        <java classname="${main-class}" classpathref="test.classpath" fork="true" >
+          <arg value="transcode" />
+          <arg value="${testdata.dir}/theme/buffet.jpg" />
+          <sysproperty key="java.library.path" path="${lib.dir}:${libnative.dir}"/>
+        </java>
+    </target>
+
+    <target name="test-decode" depends="jar,test-jar">
+        <echo>OS architecture: ${target.name}</echo>
+
+        <java classname="${main-class}" classpathref="test.classpath" fork="true" >
+          <arg value="decode" />
+          <arg value="${testdata.dir}/theme/buffet.jpg" />
+          <arg value="${testdata.dir}/theme/chicken.jpg" />
+          <arg value="${testdata.dir}/theme/coffee.jpg" />
+          <arg value="${testdata.dir}/theme/cont.jpg" />
+          <arg value="${testdata.dir}/theme/cont2.jpg" />
+          <arg value="${testdata.dir}/theme/dim.jpg" />
+          <arg value="${testdata.dir}/theme/filipino.jpg" />
+          <arg value="${testdata.dir}/theme/grill.jpg" />
+          <arg value="${testdata.dir}/theme/gumbo.jpg" />
+          <arg value="${testdata.dir}/theme/healthy.jpg" />
+          <arg value="${testdata.dir}/theme/sushi.jpg" />
+          <sysproperty key="java.library.path" path="${lib.dir}:${libnative.dir}"/>  
+        </java>
+    </target>
+
+    <target name="test-quantize" depends="jar,test-jar">
+        <echo>OS architecture: ${target.name}</echo>
+
+        <java classname="${main-class}" classpathref="test.classpath" fork="true" >
+          <arg value="quantize" />
+          <arg value="${testdata.dir}/theme/buffet.jpg" />
+          <arg value="${testdata.dir}/theme/chicken.jpg" />
+          <arg value="${testdata.dir}/theme/coffee.jpg" />
+          <arg value="${testdata.dir}/theme/cont.jpg" />
+          <arg value="${testdata.dir}/theme/cont2.jpg" />
+          <arg value="${testdata.dir}/theme/dim.jpg" />
+          <arg value="${testdata.dir}/theme/filipino.jpg" />
+          <arg value="${testdata.dir}/theme/grill.jpg" />
+          <arg value="${testdata.dir}/theme/gumbo.jpg" />
+          <arg value="${testdata.dir}/theme/healthy.jpg" />
+          <arg value="${testdata.dir}/theme/sushi.jpg" />
+          <sysproperty key="java.library.path" path="${lib.dir}:${libnative.dir}"/>  
+        </java>
+    </target>
+
+    <target name="test" depends="jar,test-jar,test-decode,test-transcode,test-quantize" />
+
+    <target name="clean-build" depends="clean,jar"/>
+
+    <target name="main" depends="clean,compile,jar"/>
+
+</project>

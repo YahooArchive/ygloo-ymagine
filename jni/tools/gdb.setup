@@ -1,0 +1,12 @@
+# Start remote process with:
+# adb forward tcp:5039 tcp:5039
+# adb shell gdbserver localhost:5039 /system/xbin/test-ymagine
+target remote localhost:5039
+
+source ../../libs/armeabi-v7a/gdb.setup
+
+# Load unstripped binary
+file ../../obj/local/armeabi-v7a/test-ymagine
+b main
+
+continue
