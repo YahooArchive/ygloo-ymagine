@@ -945,7 +945,7 @@ main_convert(int argc, const char* argv[])
 
 static void usage_blur()
 {
-  printf("usage: ymagine blur [-width width] [-height height] infile.jpg outfile.jpg\n");
+  printf("usage: ymagine blur [-width width] [-height height] [-radius radius] infile.jpg outfile.jpg\n");
 }
 
 static int
@@ -965,6 +965,7 @@ main_blur(int argc, const char* argv[])
   int pass;
 
   Vbitmap *vbitmap = NULL;
+  int radius = 0;
 
   NSTYPE start,end;
 
@@ -991,6 +992,13 @@ main_blur(int argc, const char* argv[])
       }
       i++;
       height = atoi(argv[i]);
+    } else if (argv[i][1] == 'r' && strcmp(argv[i], "-radius") == 0) {
+      if (i+1 >= argc) {
+        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
+        fflush(stdout);
+      }
+      i++;
+      radius = atoi(argv[i]);
     } else {
       fprintf(stdout, "unknown option \"%s\"\n", argv[i]);
       fflush(stdout);
@@ -998,7 +1006,7 @@ main_blur(int argc, const char* argv[])
     }
   }
 
-  if (i+1 >= argc || width<=0 || height<=0) {
+  if (i+1 >= argc) {
     usage_blur();
     return 1;
   }
@@ -1016,15 +1024,26 @@ main_blur(int argc, const char* argv[])
     YchannelRelease(channel);
   }
 
+  if (radius <= 0) {
+    if (VbitmapWidth(vbitmap) < VbitmapHeight(vbitmap)) {
+      radius = VbitmapWidth(vbitmap) / 10;
+    } else {
+      radius = VbitmapHeight(vbitmap) / 10;
+    }
+  }
+
   start = NSTIME();
   for (pass=0; pass<nbiters; pass++) {
-    Ymagine_blur(vbitmap, 40);
+    Ymagine_blur(vbitmap, radius);
   }
   end = NSTIME();
 
 #if YMAGINE_PROFILE
-  fprintf(stdout, "Blured %d times in %lld ns -> %.2f ms per conversion\n",
-          nbiters, (long long) (end - start),
+  fprintf(stdout, "Blured %d times (%dx%d) image with radius %d in %lld ns -> %.2f ms per conversion\n",
+          nbiters,
+          VbitmapWidth(vbitmap), VbitmapHeight(vbitmap),
+          radius,
+          (long long) (end - start),
           ((double) (end - start)) / (nbiters*1000000.0));
   fflush(stdout);
 #endif
