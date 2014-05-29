@@ -72,7 +72,7 @@ Ymagine_blurSuperfast(unsigned char *pix,
   int x, y;
   int i, n;
   int p, p1, p2;
-  int yp, yi, zi, yw;
+  int yi, zi, yw;
   int maxwh;
   int *vmin;
   int *vmax;
@@ -164,13 +164,11 @@ Ymagine_blurSuperfast(unsigned char *pix,
       gsum = 0;
       bsum = 0;
 
-      yp = -radius * w;
       for (i = -radius; i <= radius; i++) {
-        yi = MAX(0,yp)+x;
+        yi = MIN(MAX(0,i),hm) * w + x;
         rsum += r[yi];
         gsum += g[yi];
         bsum += b[yi];
-        yp += w;
       }
 
       yi = x * bpp;
