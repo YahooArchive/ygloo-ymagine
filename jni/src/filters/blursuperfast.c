@@ -137,7 +137,7 @@ Ymagine_blurSuperfast(unsigned char *pix,
         bsum += pix[p+2];
       }
 
-      for (x = 0; x < w; x++){
+      for (x = 0; x < w; x++) {
         r[zi] = dv[rsum];
         g[zi] = dv[gsum];
         b[zi] = dv[bsum];
