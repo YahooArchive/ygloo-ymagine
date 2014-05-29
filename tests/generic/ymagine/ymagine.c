@@ -945,7 +945,7 @@ main_convert(int argc, const char* argv[])
 
 static void usage_blur()
 {
-  printf("usage: ymagine blur [-width width] [-height heught] infile.jpg outfile.jpg\n");
+  printf("usage: ymagine blur [-width width] [-height height] infile.jpg outfile.jpg\n");
 }
 
 static int
