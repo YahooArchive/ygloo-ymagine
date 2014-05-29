@@ -84,6 +84,9 @@ Ymagine_blurSuperfast(unsigned char *pix,
   if (w <= 0 || h <= 0) {
     return YMAGINE_OK;
   }
+  if (bpp < 3) {
+    return YMAGINE_ERROR;
+  }
 
   maxwh = MAX(w, h);
   wm = w - 1;
@@ -120,21 +123,21 @@ Ymagine_blurSuperfast(unsigned char *pix,
     yw = 0;
 
     for (y = 0; y < h; y++) {
-	    rsum = 0;
-	    gsum = 0;
-	    bsum = 0;
+      rsum = 0;
+      gsum = 0;
+      bsum = 0;
 
-	    yi = y * pitch;
-	    zi = y * w;
+      yi = y * pitch;
+      zi = y * w;
 
-	    for (i = -radius; i <= radius; i++) {
+      for (i = -radius; i <= radius; i++) {
         p = yi + (MIN(wm, MAX(i,0)) * bpp);
         rsum += pix[p];
         gsum += pix[p+1];
         bsum += pix[p+2];
-	    }
+      }
 
-	    for (x = 0; x < w; x++){
+      for (x = 0; x < w; x++){
         r[zi] = dv[rsum];
         g[zi] = dv[gsum];
         b[zi] = dv[bsum];
@@ -151,27 +154,27 @@ Ymagine_blurSuperfast(unsigned char *pix,
         bsum += pix[p1+2] - pix[p2+2];
 
         zi++;
-	    }
+      }
 
-	    yw += pitch;
+      yw += pitch;
     }
 
     for (x = 0; x < w; x++) {
-	    rsum = 0;
-	    gsum = 0;
-	    bsum = 0;
+      rsum = 0;
+      gsum = 0;
+      bsum = 0;
 
-	    yp = -radius * w;
-	    for (i = -radius; i <= radius; i++) {
+      yp = -radius * w;
+      for (i = -radius; i <= radius; i++) {
         yi = MAX(0,yp)+x;
         rsum += r[yi];
         gsum += g[yi];
         bsum += b[yi];
         yp += w;
-	    }
+      }
 
-	    yi = x * bpp;
-	    for (y = 0; y < h; y++) {
+      yi = x * bpp;
+      for (y = 0; y < h; y++) {
         pix[yi] = dv[rsum];
         pix[yi + 1] = dv[gsum];
         pix[yi + 2] = dv[bsum];
@@ -188,7 +191,7 @@ Ymagine_blurSuperfast(unsigned char *pix,
         bsum += b[p1]-b[p2];
 
         yi += pitch;
-	    }
+      }
     }
   }
 
