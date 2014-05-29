@@ -259,6 +259,7 @@ main_decode(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       classifier_path = argv[i];
@@ -266,6 +267,7 @@ main_decode(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       ncolors = atoi(argv[i]);
@@ -273,6 +275,7 @@ main_decode(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       nbiters = atoi(argv[i]);
@@ -281,7 +284,6 @@ main_decode(int argc, const char* argv[])
       /* Unknown option */
       fprintf(stdout, "unknown option \"%s\"\n", argv[i]);
       fflush(stdout);
-
       return 1;
     }
   }
@@ -409,6 +411,7 @@ main_transcode(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       maxWidth = atoi(argv[i]);
@@ -416,6 +419,7 @@ main_transcode(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       maxHeight = atoi(argv[i]);
@@ -423,6 +427,7 @@ main_transcode(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       niters = atoi(argv[i]);
@@ -430,6 +435,7 @@ main_transcode(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       quality = atoi(argv[i]);
@@ -449,6 +455,7 @@ main_transcode(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       presetFile = argv[i];
@@ -457,7 +464,6 @@ main_transcode(int argc, const char* argv[])
       /* Unknown option */
       fprintf(stdout, "unknown option \"%s\"\n", argv[i]);
       fflush(stdout);
-
       return 1;
     }
   }
@@ -680,12 +686,14 @@ main_filters(int sobel, int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
     } else if (argv[i][1] == 'h' && strcmp(argv[i], "-height") == 0) {
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
     } else {
@@ -866,6 +874,7 @@ main_convert(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       width = atoi(argv[i]);
@@ -873,6 +882,7 @@ main_convert(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       height = atoi(argv[i]);
@@ -982,6 +992,7 @@ main_blur(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       width = atoi(argv[i]);
@@ -989,6 +1000,7 @@ main_blur(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       height = atoi(argv[i]);
@@ -996,6 +1008,7 @@ main_blur(int argc, const char* argv[])
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
+        return 1;
       }
       i++;
       radius = atoi(argv[i]);
