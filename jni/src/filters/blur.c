@@ -41,7 +41,7 @@ Ymagine_blur(Vbitmap *vbitmap, int radius)
     if (Ymagine_blurBuffer(pixels,
                            width, height, pitch, bpp,
                            (int) radius) == YMAGINE_OK) {
-	    rc = YMAGINE_OK;
+      rc = YMAGINE_OK;
     }
 
     VbitmapUnlock(vbitmap);
