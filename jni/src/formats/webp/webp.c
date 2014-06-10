@@ -45,6 +45,7 @@ typedef struct
 
   int inwidth;
   int inheight;
+
   int outwidth;
   int outheight;
   int outbpp;
@@ -209,9 +210,11 @@ WEBPFini(WEBPDec* pWEBP)
  */
 
 static int
-WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap)
+WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap,
+           int maxWidth, int maxHeight, int scaleMode, int quality)
 {
   int contentSize;
+  int inwidth, inheight;
   int origWidth = 0;
   int origHeight = 0;
   int width, height;
@@ -224,6 +227,16 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap)
   int opitch;
   unsigned char *odata;
   int rc;
+  int premultiplied = 1;
+  Rect srcrect;
+  Rect destrect;
+
+  if (quality < 0) {
+    quality = 85;
+  }
+  if (quality > 100) {
+    quality = 100;
+  }
 
   headerlen = YchannelRead(pSrc->channel, (char *) header, sizeof(header));
   if (headerlen < WEBP_HEADER_SIZE) {
@@ -246,27 +259,45 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap)
     return YMAGINE_ERROR;
   }
 
-  ALOGV("Image is %dx%d", origWidth, origHeight);
+  inwidth = VbitmapWidth(vbitmap);
+  inheight = VbitmapHeight(vbitmap);
   
-  width = origWidth;
-  height = origHeight;
+  srcrect.x = 0;
+  srcrect.y = 0;
+  srcrect.width = origWidth;
+  srcrect.height = origHeight;
 
-  /* If decoding bounds only, no need to process more data */
-  if (VbitmapType(vbitmap) == VBITMAP_NONE) {
-    if (VbitmapResize(vbitmap, width, height) != YMAGINE_OK) {
+  if (inwidth > 0 && inheight > 0) {
+    width = inwidth;
+    height = inheight;
+
+    computeTransform(origWidth, origHeight,
+                     maxWidth, maxHeight, scaleMode,
+                     &srcrect, &destrect);
+  } else {
+    int reqwidth, reqheight;
+
+    computeBounds(origWidth, origHeight,
+                  maxWidth, maxHeight, scaleMode,
+                  &reqwidth, &reqheight);
+    if (VbitmapResize(vbitmap, reqwidth, reqheight) != YMAGINE_OK) {
       return YMAGINE_ERROR;
     }
-    return YMAGINE_OK;
-  }
+    if (VbitmapType(vbitmap) == VBITMAP_NONE) {
+      return YMAGINE_OK;
+    }
 
-  if (VbitmapResize(vbitmap, width, height) != YMAGINE_OK) {
-    return YMAGINE_ERROR;
+    width = VbitmapWidth(vbitmap);
+    height = VbitmapHeight(vbitmap);
+
+    destrect.x = 0;
+    destrect.y = 0;
+    destrect.width = width;
+    destrect.height = height;
   }
 
   pSrc->bitmap = vbitmap;
 
-  /* libwebp I/O abstraction is tricky. For initial implementation, let's go the
-     "dirty" way, by loading image file content in memory before decoding it */
   inputlen = contentSize;
   toRead = inputlen - headerlen;
 
@@ -293,12 +324,28 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap)
       pSrc->isdirect = 1;
       pSrc->outformat = oformat;
       pSrc->outbpp = VbitmapBpp(vbitmap);
-      pSrc->outbuffer = odata;
       pSrc->outstride = opitch;
+      pSrc->outbuffer = odata + destrect.x * pSrc->outbpp + destrect.y * pSrc->outstride;
 
       WebPInitDecoderConfig(&config);
 
-      config.options.no_fancy_upsampling = 1;
+      if (quality < 90) {
+        config.options.no_fancy_upsampling = 1;
+      }
+      if (quality < 60) {
+        config.options.bypass_filtering = 1;
+      }
+
+      config.options.use_threads = 1;
+
+      if (srcrect.x != 0 || srcrect.y != 0 || srcrect.width != origWidth || srcrect.height != origHeight) {
+        /* Crop on source */
+        config.options.use_cropping = 1;
+        config.options.crop_left = srcrect.x;
+        config.options.crop_top = srcrect.y;
+        config.options.crop_width = srcrect.width;
+        config.options.crop_height = srcrect.height;
+      }
       if (width != origWidth || height != origHeight) {
         config.options.use_scaling = 1;
         config.options.scaled_width = width;
@@ -310,7 +357,12 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap)
         WebPIDecoder* idec;
 
         // Specify the desired output colorspace:
-        config.output.colorspace = MODE_RGBA;
+        if (premultiplied) {
+          /* Premultiplied */
+          config.output.colorspace = MODE_rgbA;
+        } else {
+          config.output.colorspace = MODE_RGBA;
+        }
         // Have config.output point to an external buffer:
         config.output.u.RGBA.rgba = (uint8_t*) pSrc->outbuffer;
         config.output.u.RGBA.stride = pSrc->outstride;
@@ -404,7 +456,7 @@ decodeWEBP(Ychannel *channel, Vbitmap *vbitmap,
 
 #if HAVE_WEBP
   if (WEBPInit(&webp, channel, vbitmap) == YMAGINE_OK) {
-    nlines = WEBPDecode(&webp, vbitmap);
+    nlines = WEBPDecode(&webp, vbitmap, maxWidth, maxHeight, scaleMode, quality);
     WEBPFini(&webp);
   }
 #endif
