@@ -123,6 +123,14 @@ YmagineDecode(Vbitmap *bitmap, Ychannel *channel,
     shader = options->pixelshader;
   }
 
+  /* Normalize quality parameter */
+  if (quality < 0) {
+    quality = 85;
+  }
+  if (quality > 100) {
+    quality = 100;
+  }
+
   if (!YchannelReadable(channel)) {
     return YMAGINE_ERROR;
   }
