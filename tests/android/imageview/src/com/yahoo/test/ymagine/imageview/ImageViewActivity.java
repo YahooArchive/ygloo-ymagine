@@ -114,15 +114,12 @@ public class ImageViewActivity extends Activity {
             reqHeight = -1;
         }
 
-        // Bitmap bitmap = Bitmap.createBitmap(200, 200,
-        // Bitmap.Config.ARGB_8888);
         Bitmap inbitmap = null;
         Bitmap outbitmap = null;
         InputStream instream = null;
 
         if (reqWidth > 0 && reqHeight > 0 && outstream == null) {
-            inbitmap = Bitmap.createBitmap(reqWidth, reqHeight,
-                    Bitmap.Config.ARGB_8888);
+            inbitmap = Bitmap.createBitmap(reqWidth, reqHeight, Bitmap.Config.ARGB_8888);
             // inbitmap.eraseColor(Color.TRANSPARENT);
         }
 
@@ -131,7 +128,7 @@ public class ImageViewActivity extends Activity {
         if (inbitmap != null) {
             opts.inMaxWidth = inbitmap.getWidth();
             opts.inMaxHeight = inbitmap.getHeight();
-            // opts.inBitmap = inbitmap;
+            opts.inBitmap = inbitmap;
         } else if (outstream != null) {
             opts.inMaxWidth = reqWidth;
             opts.inMaxHeight = reqHeight;

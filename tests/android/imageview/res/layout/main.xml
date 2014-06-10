@@ -1,82 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
     android:orientation="vertical" >
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal" >
-
-        <Button
-            android:id="@+id/btnLoadNative"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Ymagine" />
-
-        <Button
-            android:id="@+id/btnLoadSystem"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="System" />
-
-        <Button
-            android:id="@+id/btnTranscode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Transcode" />
-
-        </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal" >
-
-        <CheckBox
-            android:id="@+id/checkbox_bounds"
-            android:layout_width="90dp"
-            android:layout_height="wrap_content"
-            android:text="@string/bounds" />
-        
-        <CheckBox
-            android:id="@+id/checkbox_quantize"
-            android:layout_width="90dp"
-            android:layout_height="wrap_content"
-            android:text="@string/quantize" />
-
-        <CheckBox
-            android:id="@+id/checkbox_colorize"
-            android:layout_width="90dp"
-            android:layout_height="wrap_content"
-            android:text="@string/colorize" />
-        
-        <CheckBox
-            android:id="@+id/checkbox_blur"
-            android:layout_width="90dp"
-            android:layout_height="wrap_content"
-            android:text="@string/blur" />
-
-        <SeekBar
-            android:id="@+id/radiusSeek"
-            android:layout_width="146dp"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:orientation="vertical" />
-
-        <TextView
-            android:id="@+id/blurTextView"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="" />
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/messageView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="" />
 
     <ImageView
         android:id="@+id/imageView1"
@@ -85,6 +11,86 @@
         android:adjustViewBounds="true"
         android:cropToPadding="true"
         android:scaleType="fitCenter"
-		android:src="@drawable/nophoto" />
+        android:src="@drawable/nophoto" />
+    
+    <LinearLayout
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#80000000" >
 
-</LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" >
+
+            <Button
+                android:id="@+id/btnLoadNative"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ymagine" />
+
+            <Button
+                android:id="@+id/btnLoadSystem"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="System" />
+
+            <Button
+                android:id="@+id/btnTranscode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Transcode" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" >
+
+            <CheckBox
+                android:id="@+id/checkbox_bounds"
+                android:layout_width="90dp"
+                android:layout_height="wrap_content"
+                android:text="@string/bounds" />
+
+            <CheckBox
+                android:id="@+id/checkbox_quantize"
+                android:layout_width="90dp"
+                android:layout_height="wrap_content"
+                android:text="@string/quantize" />
+
+            <CheckBox
+                android:id="@+id/checkbox_colorize"
+                android:layout_width="90dp"
+                android:layout_height="wrap_content"
+                android:text="@string/colorize" />
+
+            <CheckBox
+                android:id="@+id/checkbox_blur"
+                android:layout_width="90dp"
+                android:layout_height="wrap_content"
+                android:text="@string/blur" />
+
+            <SeekBar
+                android:id="@+id/radiusSeek"
+                android:layout_width="146dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/blurTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/messageView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="" />
+    </LinearLayout>
+
+</RelativeLayout>
