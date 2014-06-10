@@ -154,9 +154,17 @@ Ymagine_colorizeBuffer(unsigned char *pix,
 
         /* TODO: if nextp is word aligned, can assign word directly */
         lcolor = lookup + lum * 4;
-        nextp[0] = lcolor[0];
-        nextp[1] = lcolor[1];
-        nextp[2] = lcolor[2];
+        if (bpp == 4 && nextp[3] != 0xff) {
+          int alpha = nextp[3];
+
+          nextp[0] = (lcolor[0] * alpha) / 255;
+          nextp[1] = (lcolor[1] * alpha) / 255;
+          nextp[2] = (lcolor[2] * alpha) / 255;
+        } else {
+          nextp[0] = lcolor[0];
+          nextp[1] = lcolor[1];
+          nextp[2] = lcolor[2];
+        }
 
         nextp += bpp;        
       }
