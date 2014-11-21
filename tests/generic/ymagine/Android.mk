@@ -52,9 +52,11 @@ endif
 ifeq ($(YMAGINE_CONFIG_XMP),true)
 LOCAL_STATIC_LIBRARIES += libyahoo_expat
 endif
+ifeq ($(YMAGINE_CONFIG_VISION),true)
 LOCAL_STATIC_LIBRARIES += libyahoo_ccv
 LOCAL_STATIC_LIBRARIES += libyahoo_ccv_sqlite
 LOCAL_STATIC_LIBRARIES += libyahoo_ccv_compat
+endif
 LOCAL_STATIC_LIBRARIES += libyahoo_jpegturbo
 ifeq ($(YMAGINE_CONFIG_BITMAP_WEBP),true)
 LOCAL_STATIC_LIBRARIES += libyahoo_webpdec

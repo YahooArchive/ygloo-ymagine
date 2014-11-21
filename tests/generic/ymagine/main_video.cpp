@@ -11,7 +11,6 @@
  */
 
 #include "ymagine_main.h"
-#include "ymagine/plugins/video.h"
 
 extern "C" {
   int main_webminfo(int argc, const char* argv[]);
@@ -40,9 +39,11 @@ main_video(int argc, const char* argv[])
   int pass;
   NSTYPE start,end;
 
+#if HAVE_PLUGIN_VIDEO
   if (1) {
     return main_webminfo(argc, argv);
   }
+#endif
 
   for (i = 0; i < argc; i++) {
     if (argv[i][0] != '-') {
@@ -84,8 +85,12 @@ main_video(int argc, const char* argv[])
   infile = argv[i];
   i++;
 
+#if HAVE_PLUGIN_VIDEO
   fprintf(stdout, "Ymagine video decoder version %d\n",
 	  ymagine_video_version(NULL));
+#else
+  fprintf(stdout, "Ymagine video decoder not available\n");
+#endif
   fprintf(stdout, "Requested geometry %dx%d\n",
 	  width, height);
 
@@ -110,6 +115,7 @@ main_video(int argc, const char* argv[])
   return 0;
 }
 
+#if HAVE_PLUGIN_VIDEO
 // Copyright (c) 2012 The WebM project authors. All Rights Reserved.
 //
 // Use of this source code is governed by a BSD-style license
@@ -1073,4 +1079,4 @@ extern "C" int main_webminfo(int argc, const char* argv[])
 
   return EXIT_SUCCESS;
 }
-
+#endif /* HAVE_PLUGIN_VIDEO */

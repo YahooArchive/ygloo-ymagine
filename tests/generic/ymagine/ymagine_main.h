@@ -26,6 +26,9 @@ extern "C" {
 #if HAVE_PLUGIN_VISION
 #include "ymagine/plugins/vision.h"
 #endif
+#if HAVE_PLUGIN_VIDEO
+#include "ymagine/plugins/video.h"
+#endif
 
 #include "ymagine_priv.h"
 

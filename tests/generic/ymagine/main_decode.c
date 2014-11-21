@@ -150,6 +150,7 @@ decodeImage(char* data, size_t length,
       printf("detector not supported\n");
 #endif
     } else if (classify) {
+#if HAVE_PLUGIN_VISION
       vbitmap = VbitmapInitMemory(VBITMAP_COLOR_RGBA);
       if (vbitmap != NULL) {
         rc = YmagineDecode(vbitmap, channel, options);
@@ -157,6 +158,9 @@ decodeImage(char* data, size_t length,
           classify_run(vbitmap);
         }
       }
+#else
+      printf("classifier not supported\n");
+#endif
     } else {
       vbitmap = VbitmapInitMemory(VBITMAP_COLOR_RGBA);
       rc = YmagineDecode(vbitmap, channel, options);
