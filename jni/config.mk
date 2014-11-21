@@ -24,6 +24,12 @@ YMAGINE_CONFIG_BITMAP_GIF:=false
 YMAGINE_CONFIG_XMP:=true
 YMAGINE_CONFIG_CLASSIFIER:=true
 YMAGINE_CONFIG_VIDEO:=true
+ifeq (,$(wildcard $(YMAGINE_JNI)/plugins/vision))
+YMAGINE_CONFIG_CLASSIFIER:=false
+endif
+ifeq (,$(wildcard $(YMAGINE_JNI)/plugins/video))
+YMAGINE_CONFIG_VIDEO:=false
+endif
 
 # Code layout
 YMAGINE_PLUGINS_ROOT:=$(YMAGINE_ROOT)/plugins
