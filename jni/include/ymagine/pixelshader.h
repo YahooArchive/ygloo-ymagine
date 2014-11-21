@@ -75,6 +75,16 @@ Yshader_apply(PixelShader* shader,
               int imageX, int imageY);
 
 /**
+ * @brief Number of Vignette transformations in shader
+ * @ingroup Pixelshader
+ *
+ * @param shader shader to check for vignettes
+ * @return number of vignettes transformations in this shader, 0 if none
+ */
+int
+Yshader_hasVignette(PixelShader *shader);
+
+/**
  * @brief Releases pixel shader.
  * @ingroup Pixelshader
  */

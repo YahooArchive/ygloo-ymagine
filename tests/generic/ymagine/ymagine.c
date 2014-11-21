@@ -10,641 +10,7 @@
  * the License. See accompanying LICENSE file.
  */
 
-/*
- * Ymagine image processing test
- *
- */
-#include "yosal/yosal.h"
-#include "ymagine/ymagine.h"
-#if HAVE_PLUGIN_VISION
-#include "ymagine/plugins/vision.h"
-#endif
-
-#include "ymagine_priv.h"
-
-#include <stdio.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
-#include <fcntl.h>
-
-#define YMAGINE_PROFILE 1
-
-#ifndef O_BINARY
-#define O_BINARY 0
-#endif
-
-#define HAVE_TIMER
-#ifdef HAVE_TIMER
-/* #define NSTIME() Ytime(SYSTEM_TIME_THREAD) */
-#define NSTYPE nsecs_t
-#define NSTIME() ((NSTYPE) Ytime(YTIME_CLOCK_REALTIME))
-#else
-#define NSTYPE uint64_t
-#define NSTIME() ((NSTYPE) 0)
-#endif
-
-static int
-decodeImage(char* data, size_t length,
-            int ncolors, int detect, PixelShader* shader)
-{
-  Vbitmap *vbitmap;
-  Ychannel *channel;
-  int rc = -1;
-  YmagineFormatOptions *options = NULL;
-
-  unsigned int maxWidth = 1024;
-  unsigned int maxHeight = 1024;
-  int scaleMode = YMAGINE_SCALE_LETTERBOX;
-
-  if (detect) {
-    maxWidth = -1;
-    maxHeight = -1;
-  }
-
-  if (ncolors > 0) {
-    maxWidth = 64;
-    maxHeight = 64;
-    scaleMode = YMAGINE_SCALE_FIT;
-  }
-
-  options = YmagineFormatOptions_Create();
-  if (options != NULL) {
-    YmagineFormatOptions_setResize(options, maxWidth, maxHeight, scaleMode);
-    YmagineFormatOptions_setShader(options, shader);
-  }
-
-  channel = YchannelInitByteArray(data, length);
-  if (channel != NULL && options != NULL) {
-    if (detect) {
-#if HAVE_PLUGIN_VISION
-      int i;
-
-      /* Face detection requires only luminance, so decode as grayscale
-	     to improve performance and lower memory footprint. Detector
-	     supports image in either RGB, RGBA or GRAYSCALE mode.
-       */
-      vbitmap = VbitmapInitMemory(VBITMAP_COLOR_GRAYSCALE);
-
-      if (vbitmap != NULL) {
-        rc = YmagineDecode(vbitmap, channel, options);
-        if (rc == 0) {
-          int maxmatches = 64;
-          int coords[4*maxmatches];
-          int scores[maxmatches];
-          int nfound;
-
-          nfound = detect_run(vbitmap, 100, maxmatches, coords, scores);
-          for (i = 0; i < nfound; i++) {
-            fprintf(stdout,
-                    " #%d: @(%d,%d)->(%dx%d) score=%d\n",
-                    i+1,
-                    coords[4*i+0],
-                    coords[4*i+1],
-                    coords[4*i+2],
-                    coords[4*i+3],
-                    scores[i]);
-            fflush(stdout);
-          }
-        }
-        VbitmapRelease(vbitmap);
-      }
-#else
-      printf("detector not supported\n");
-#endif
-    } else {
-      vbitmap = VbitmapInitMemory(VBITMAP_COLOR_RGBA);
-      rc = YmagineDecode(vbitmap, channel, options);
-
-      printf("Decoded: %dx%d\n", VbitmapWidth(vbitmap), VbitmapHeight(vbitmap));
-#if 0
-      if (ncolors > 0) {
-        int i=0;
-        Vcolor colors[16];
-        int scores[16];
-        int ocolors;
-
-        if (ncolors > 16) {
-          ncolors = 16;
-        }
-
-        ocolors = quantize(vbitmap, ncolors, colors, scores);
-
-        printf("Found %d colors\n", ocolors);
-        if (ocolors > 0) {
-          for (i = 0; i < ocolors; i++) {
-            fprintf(stdout, "Color %d: #%02x%02x%02x, score: %d\n",
-                    i, colors[i].red, colors[i].green, colors[i].blue, scores[i]);
-          }
-        }
-      }
-#endif
-#if 0
-      blur(vbitmap, 40);
-#endif
-
-      VbitmapRelease(vbitmap);
-    }
-
-    YchannelResetBuffer(channel);
-    YchannelRelease(channel);
-  }
-
-  if (options != NULL) {
-    YmagineFormatOptions_Release(options);
-  }
-    
-  return rc;
-}
-
-static char*
-LoadFile(const char *filename, size_t *length)
-{
-  int fd;
-  struct stat statbuf;
-  size_t flen = 0;
-  char *fbase = NULL;
-  char *p;
-  size_t rem;
-  ssize_t readlen;
-
-  fd = open(filename, O_RDONLY);
-  if (fd == -1) {
-    return NULL;
-  }
-
-  /* Load image content in memory, to get rid of any risk of
-   I/O and cache effect during benchmark */
-  fstat(fd, &statbuf);
-
-  flen = statbuf.st_size;
-  if (flen == 0) {
-    close(fd);
-    return NULL;
-  }
-
-  fbase = (char*) Ymem_malloc(flen);
-  if (fbase == NULL) {
-    close(fd);
-    return NULL;
-  }
-
-  p = fbase;
-  rem = flen;
-  while (rem > 0) {
-    readlen = read(fd, p, rem);
-    if (readlen < 0) {
-      free(fbase);
-      close(fd);
-      return NULL;
-    }
-
-    p += readlen;
-    rem -= readlen;
-  }
-  close(fd);
-
-  if (length != NULL) {
-    *length = flen;
-  }
-
-  return fbase;
-}
-
-static int
-usage_decode()
-{
-  fprintf(stdout, "usage: ymagine decode ?-shaderName <shaderName (seperated "
-          "by ';' without whitespace e.g., "
-          "color-iced_tea;vignette-white_pinhole)>? "
-          "?-ntimes <ntimes>? ?-cascade <path>? ?--? file1 ?...?\n");
-  fflush(stdout);
-
-  return 0;
-}
-
-static int
-main_decode(int argc, const char* argv[])
-{
-  const char *filename;
-  char *fbase;
-  size_t flen;
-
-  NSTYPE start, end;
-  int nbiters = 1;
-  int warmup = 0;
-  int detect = 0;
-  int pass;
-  int i;
-  int ncolors = 0;
-  const char *classifier_path = NULL;
-
-  if (argc <= 1) {
-    usage_decode();
-    return 1;
-  }
-
-  for (i = 0; i < argc; i++) {
-    if (argv[i][0] != '-') {
-      break;
-    }
-
-    if (argv[i][1] == '-' && argv[i][2] == 0) {
-      i++;
-      break;
-    }
-
-    if (argv[i][1] == 'c' && strcmp(argv[i], "-cascade") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      classifier_path = argv[i];
-    } else if (argv[i][1] == 'c' && strcmp(argv[i], "-colors") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      ncolors = atoi(argv[i]);
-    } else if (argv[i][1] == 'n' && strcmp(argv[i], "-ntimes") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      nbiters = atoi(argv[i]);
-    }
-    else {
-      /* Unknown option */
-      fprintf(stdout, "unknown option \"%s\"\n", argv[i]);
-      fflush(stdout);
-      return 1;
-    }
-  }
-
-  for (; i < argc; ++i) {
-    filename = argv[i];
-
-    fprintf(stdout, "test file: %s\n", filename);
-    fflush(stdout);
-
-    /* Load image file into memory, to not benchmark I/O */
-    fbase = LoadFile(filename, &flen);
-    if (fbase == NULL) {
-      fprintf(stdout, "unable to open file \"%s\"\n", filename);
-      fflush(stdout);
-      return 1;
-    }
-
-    if (classifier_path != NULL) {
-#if HAVE_PLUGIN_VISION
-      fprintf(stdout, "Loading cascade from %s\n", classifier_path);
-      fflush(stdout);
-      if (detect_load_model(classifier_path) == YMAGINE_OK) {
-        fprintf(stdout, "Cascade loaded from %s\n", classifier_path);
-        detect = 1;
-      } else {
-        detect = 0;
-      }
-#else
-      fprintf(stdout, "detector plugin not supported, ignoring classifier\n");
-#endif
-    }
-
-    if (warmup) {
-      /* Make one run in each mode, to not benchmark one-time initialization */
-      decodeImage(fbase, flen, 0, detect, NULL);
-    }
-
-    start = NSTIME();
-    for (pass = 0; pass < nbiters; ++pass) {
-      decodeImage(fbase, flen, ncolors, detect, NULL);
-    }
-    end = NSTIME();
-
-#if YMAGINE_PROFILE
-    fprintf(stdout, "Decoded %d times in %ld ns -> %.2f ms per decoding\n",
-            nbiters, (long) (end - start),
-            ((double) (end - start)) / (nbiters*1000000.0));
-    fflush(stdout);
-#endif
-
-#if HAVE_PLUGIN_VISION
-    if (detect) {
-      detect_load_model(NULL);
-    }
-#endif
-
-    Ymem_free(fbase);
-  }
-
-  return 0;
-}
-
-static int
-usage_transcode()
-{
-  fprintf(stdout, "usage: ymagine transcode ?-width <integer>? ?-height <integer>? infile outfile\n");
-  fflush(stdout);
-
-  return 0;
-}
-
-static int
-main_transcode(int argc, const char* argv[])
-{
-  Ychannel *channelin;
-  Ychannel *channelout;
-  Ychannel *channelpreset;
-  int fdin = -1;
-  int fdout = -1;
-  int fdpreset = -1;
-  FILE *fileout = NULL;
-  int closeout = 1;
-  int closein = 1;
-  int force = 0;
-  int profile = 0;
-  int fmode;
-  int rc = 0;
-  const char *infile = NULL;
-  const char *outfile = NULL;
-  const char *presetFile = NULL;
-  int maxWidth = 512;
-  int maxHeight = 512;
-  /* scaleMode can be YMAGINE_SCALE_CROP or YMAGINE_SCALE_LETTERBOX */
-  int scaleMode = YMAGINE_SCALE_CROP;
-  int quality = -1;
-  PixelShader *shader = NULL;
-
-  NSTYPE start = 0;
-  NSTYPE end = 0;
-  NSTYPE start_transcode = 0;
-  NSTYPE end_transcode = 0;
-  NSTYPE total_transcode;
-  int i;
-  char *writebuf = NULL;
-  int writebuflen = 0;
-  int niters = 1;
-  int iter;
-
-  if (argc < 1) {
-    usage_transcode();
-    return 1;
-  }
-
-  for (i = 0; i < argc; i++) {
-    if (argv[i][0] != '-') {
-      break;
-    }
-    if (argv[i][1] == '-' && argv[i][2] == 0) {
-      i++;
-      break;
-    }
-
-    if (argv[i][1] == 'w' && strcmp(argv[i], "-width") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      maxWidth = atoi(argv[i]);
-    } else if (argv[i][1] == 'h' && strcmp(argv[i], "-height") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      maxHeight = atoi(argv[i]);
-    } else if (argv[i][1] == 'r' && strcmp(argv[i], "-repeat") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      niters = atoi(argv[i]);
-    } else if (argv[i][1] == 'q' && strcmp(argv[i], "-quality") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      quality = atoi(argv[i]);
-      if (quality < 0) {
-        quality = -1;
-      } else if (quality > 100) {
-        quality = 100;
-      }
-    } else if (argv[i][1] == 'f' && strcmp(argv[i], "-force") == 0) {
-      force = 1;
-    } else if (argv[i][1] == 'f' && strcmp(argv[i], "-fit") == 0) {
-      /* Force rescale by power fo two */
-      scaleMode = YMAGINE_SCALE_FIT;
-    } else if (argv[i][1] == 'p' && strcmp(argv[i], "-profile") == 0) {
-      profile = 1;
-    } else if (argv[i][1] == 'p' && strcmp(argv[i], "-preset") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      presetFile = argv[i];
-    }
-    else {
-      /* Unknown option */
-      fprintf(stdout, "unknown option \"%s\"\n", argv[i]);
-      fflush(stdout);
-      return 1;
-    }
-  }
-
-  if (i >= argc) {
-    usage_transcode();
-    return 1;
-  }
-
-  infile = argv[i];
-  i++;
-
-  if (i >= argc) {
-    outfile = NULL;
-  } else {
-    outfile = argv[i];
-    i++;
-  }
-
-  if (niters < 1) {
-    niters = 1;
-  }
-
-  total_transcode = 0;
-  start = NSTIME();
-  for (iter = 0; iter < niters; iter++) {
-  fdin = open(infile, O_RDONLY | O_BINARY);
-  if (fdin < 0) {
-    fprintf(stdout, "failed to open input file \"%s\"\n", infile);
-    fflush(stdout);
-    return 1;
-  }
-
-  fmode = O_WRONLY | O_CREAT | O_BINARY;
-  if (force) {
-    /* Truncate file if it already exisst */
-    fmode |= O_TRUNC;
-  } else {
-    /* Fail if file already exists */
-    fmode |= O_EXCL;
-  }
-
-    if (presetFile != NULL) {
-      if (shader == NULL) {
-        shader = Yshader_PixelShader_create();
-      }
-
-      if (shader != NULL) {
-        fdpreset = open(presetFile, O_RDONLY | O_BINARY);
-        if (fdpreset == -1) {
-          fprintf(stdout, "failed to open input file \"%s\"\n", presetFile);
-          fflush(stdout);
-          return 1;
-        }
-
-        channelpreset = YchannelInitFd(fdpreset, 0);
-
-        if (channelpreset != NULL) {
-          Yshader_PixelShader_preset(shader, channelpreset);
-          YchannelRelease(channelpreset);
-        }
-
-        close(fdpreset);
-      }
-    }
-
-  if (outfile == NULL) {
-#if 0
-    fdout = STDOUT_FILENO;
-#else
-    fileout = stdout;
-#endif
-    closeout = 0;
-  } else {
-    // fileout = fopen(outfile, "wb");
-    if (fileout == NULL) {
-      fdout = open(outfile, fmode, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-    }
-    if (fdout < 0 && fileout == NULL) {
-      if (closein) {
-        close(fdin);
-      }
-
-      fprintf(stdout, "failed to open output file \"%s\"\n", outfile);
-      fflush(stdout);
-      return 1;
-    }
-    closeout = 1;
-
-    if (fileout != NULL) {
-      if (writebuflen > 0) {
-        writebuf = Ymem_malloc(writebuflen);
-        if (writebuf != NULL) {
-          if (setvbuf(fileout, writebuf, _IOFBF, writebuflen) != 0) {
-            // Error setting write buffer. Ignore and fallback to default buffering
-            Ymem_free(writebuf);
-            writebuf = NULL;
-          }
-        }
-      }
-    }
-  }
-
-  channelin = YchannelInitFd(fdin, 0);
-  if (channelin == NULL) {
-    fprintf(stdout, "failed to create input stream\n");
-    fflush(stdout);
-  } else {
-    if (fileout != NULL) {
-      channelout = YchannelInitFile(fileout, 1);
-    } else {
-      channelout = YchannelInitFd(fdout, 1);
-    }
-    if (channelout == NULL) {
-      fprintf(stdout, "failed to create output stream\n");
-      fflush(stdout);
-    } else {
-      start_transcode=NSTIME();
-      rc = transcodeJPEG(channelin, channelout, maxWidth, maxHeight, scaleMode,
-                         quality, shader);
-      end_transcode=NSTIME();
-      total_transcode += (end_transcode - start_transcode);
-      YchannelRelease(channelout);
-    }
-    YchannelRelease(channelin);
-  }
-
-  if (closeout) {
-    if (fdout >= 0) {
-      close(fdout);
-    }
-    if (fileout != NULL) {
-      fclose(fileout);
-    }
-  } else {
-    if (fdout >= 0) {
-      fsync(fdout);
-    }
-    if (fileout != NULL) {
-      fflush(fileout);
-    }
-  }
-  if (closein) {
-    close(fdin);
-  }
-  if (writebuf != NULL) {
-    Ymem_free(writebuf);
-    writebuf = NULL;
-  }
-  }
-
-  if (shader != NULL) {
-    Yshader_PixelShader_release(shader);
-    shader = NULL;
-  }
-
-  end = NSTIME();
-
-#if YMAGINE_PROFILE
-  if (profile) {
-    fprintf(stdout, "Transcoded image %d times in average of %.2f ms (%.2f ms total)\n",
-            niters,
-            ((double) total_transcode) / (niters * 1000000.0),
-            ((double) (end - start)) / (niters * 1000000.0));
-    fflush(stdout);
-  }
-#endif
-
-  return rc;
-}
-
-static int
-usage(const char *mode)
-{
-  fprintf(stdout, "usage: ymagine mode ?-options ...? ?--? filename...\n");
-  fprintf(stdout, "supported jpeg mode: decode or transcode\n");
-  fprintf(stdout, "supported conversion mode: nv21torgb\n");
-  fflush(stdout);
-
-  return 0;
-}
+#include "ymagine_main.h"
 
 static void usage_seam()
 {
@@ -905,7 +271,7 @@ main_convert(int argc, const char* argv[])
 
   printf("converting from NV21 raw to RGB\n");
 
-  indata = (unsigned char*) LoadFile(infile, &indatalen);
+  indata = (unsigned char*) LoadDataFromFile(infile, &indatalen);
 
   if (indatalen != width*height + (width*height)/2) {
     printf("size missmatches widthxheight\n");
@@ -952,144 +318,6 @@ main_convert(int argc, const char* argv[])
   Ymem_free(indata);
   return 0;
 }
-
-static void usage_blur()
-{
-  printf("usage: ymagine blur [-width width] [-height height] [-radius radius] infile.jpg outfile.jpg\n");
-}
-
-static int
-main_blur(int argc, const char* argv[])
-{
-  int i;
-  const char* infile;
-  const char* outfile;
-
-  int fd;
-  Ychannel* channel;
-
-  int width = -1;
-  int height = -1;
-
-  int nbiters = 1;
-  int pass;
-
-  Vbitmap *vbitmap = NULL;
-  int radius = 0;
-
-  NSTYPE start,end;
-
-  for (i = 0; i < argc; i++) {
-    if (argv[i][0] != '-') {
-      break;
-    }
-    if (argv[i][1] == '-' && argv[i][2] == 0) {
-      i++;
-      break;
-    }
-
-    if (argv[i][1] == 'w' && strcmp(argv[i], "-width") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      width = atoi(argv[i]);
-    } else if (argv[i][1] == 'h' && strcmp(argv[i], "-height") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      height = atoi(argv[i]);
-    } else if (argv[i][1] == 'r' && strcmp(argv[i], "-radius") == 0) {
-      if (i+1 >= argc) {
-        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
-        fflush(stdout);
-        return 1;
-      }
-      i++;
-      radius = atoi(argv[i]);
-    } else {
-      fprintf(stdout, "unknown option \"%s\"\n", argv[i]);
-      fflush(stdout);
-      return 1;
-    }
-  }
-
-  if (i+1 >= argc) {
-    usage_blur();
-    return 1;
-  }
-
-  infile = argv[i];
-  i++;
-  outfile = argv[i];
-  i++;
-
-  fd = open(infile, O_RDONLY);
-  if (fd >= 0) {
-    vbitmap = VbitmapInitMemory(VBITMAP_COLOR_RGBA);
-    channel = YchannelInitFd(fd, 0);
-    YmagineDecodeResize(vbitmap, channel, width, height, YMAGINE_SCALE_LETTERBOX);
-    YchannelRelease(channel);
-  }
-
-  if (radius <= 0) {
-    if (VbitmapWidth(vbitmap) < VbitmapHeight(vbitmap)) {
-      radius = VbitmapWidth(vbitmap) / 10;
-    } else {
-      radius = VbitmapHeight(vbitmap) / 10;
-    }
-  }
-
-  start = NSTIME();
-  for (pass=0; pass<nbiters; pass++) {
-    Ymagine_blur(vbitmap, radius);
-  }
-  end = NSTIME();
-
-#if YMAGINE_PROFILE
-  fprintf(stdout, "Blured %d times (%dx%d) image with radius %d in %lld ns -> %.2f ms per conversion\n",
-          nbiters,
-          VbitmapWidth(vbitmap), VbitmapHeight(vbitmap),
-          radius,
-          (long long) (end - start),
-          ((double) (end - start)) / (nbiters*1000000.0));
-  fflush(stdout);
-#endif
-
-  if (outfile != NULL) {
-    /* Save result */
-    int fdout = open(outfile, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (fdout >= 0) {
-      Ychannel *ochannel = YchannelInitFd(fdout, 1);
-      if (ochannel == NULL) {
-      } else {
-        YmagineEncode(vbitmap, ochannel, NULL);
-        YchannelRelease(ochannel);
-      }
-      close(fdout);
-    }
-  }
-
-  VbitmapRelease(vbitmap);
-
-  return 0;
-}
-
-#ifdef MAX
-#  undef MAX
-#endif
-#define MAX(a,b) ((a) > (b) ? (a) : (b))
-
-/* Compute infinity norm (i.e. uniform) of (a - b) */
-#ifdef LINF
-#  undef LINF
-#endif
-#define LINF(a, b) ((a) > (b) ? (a) - (b) : (b) - (a))
 
 static int
 main_colorconv(int argc, const char* argv[])
@@ -1154,17 +382,30 @@ main_colorconv(int argc, const char* argv[])
   return 0;
 }
 
+static int
+usage(const char *mode)
+{
+  fprintf(stdout, "usage: ymagine mode ?-options ...? ?--? filename...\n");
+  fprintf(stdout, "supported mode: decode, info, transcode, video, seam, sobel, blur, convert, conv_profile and colorconv\n");
+  fflush(stdout);
+
+  return 0;
+}
 
 int main(int argc, const char* argv[])
 {
   enum command {
     COMMAND_DECODE,
+    COMMAND_INFO,
     COMMAND_TRANSCODE,
+    COMMAND_VIDEO,
     COMMAND_SEAM,
     COMMAND_SOBEL,
     COMMAND_BLUR,
     COMMAND_CONVERT,
-    COMMAND_COLORCONV
+    COMMAND_COLORCONV,
+    COMMAND_PSNR,
+    COMMAND_CONVOLUTION_PROFILE,
   };
   int mode = -1;
 
@@ -1172,8 +413,14 @@ int main(int argc, const char* argv[])
     if (argv[1][0] == 'd' && strcmp(argv[1], "decode") == 0) {
       mode = COMMAND_DECODE;
     }
+    else if (argv[1][0] == 'i' && strcmp(argv[1], "info") == 0) {
+      mode = COMMAND_INFO;
+    }
     else if (argv[1][0] == 't' && strcmp(argv[1], "transcode") == 0) {
       mode = COMMAND_TRANSCODE;
+    }
+    else if (argv[1][0] == 'v' && strcmp(argv[1], "video") == 0) {
+      mode = COMMAND_VIDEO;
     }
     else if (argv[1][0] == 's' && strcmp(argv[1], "seam") == 0) {
       mode = COMMAND_SEAM;
@@ -1190,6 +437,12 @@ int main(int argc, const char* argv[])
     else if (argv[1][0] == 'c' && strcmp(argv[1], "colorconv") == 0) {
       mode = COMMAND_COLORCONV;
     }
+    else if (argv[1][0] == 'p' && strcmp(argv[1], "psnr") == 0) {
+      mode = COMMAND_PSNR;
+    }
+    else if (argv[1][0] == 'c' && strcmp(argv[1], "conv_profile") == 0) {
+      mode = COMMAND_CONVOLUTION_PROFILE;
+    }
   }
 
   if (mode < 0) {
@@ -1200,8 +453,12 @@ int main(int argc, const char* argv[])
   switch ((enum command) mode) {
     case COMMAND_DECODE:
       return main_decode(argc - 2, argv + 2);
+    case COMMAND_INFO:
+      return main_info(argc - 2, argv + 2);
     case COMMAND_TRANSCODE:
       return main_transcode(argc - 2, argv + 2);
+    case COMMAND_VIDEO:
+      return main_video(argc - 2, argv + 2);
     case COMMAND_SEAM:
       return main_seam(argc - 2, argv + 2);
     case COMMAND_SOBEL:
@@ -1212,6 +469,10 @@ int main(int argc, const char* argv[])
       return main_blur(argc - 2, argv + 2);
     case COMMAND_COLORCONV:
       return main_colorconv(argc - 2, argv + 2);
+    case COMMAND_PSNR:
+      return main_psnr(argc - 2, argv + 2);
+    case COMMAND_CONVOLUTION_PROFILE:
+      return main_convolution_profile(argc - 2, argv + 2);
     default:
       usage(NULL);
       return 1;

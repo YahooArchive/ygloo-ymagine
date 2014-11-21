@@ -24,13 +24,6 @@ extern "C" {
 #endif
 
 typedef struct {
-    int x;
-    int y;
-    int width;
-    int height;
-} Rect;
-
-typedef struct {
   int iwidth;
   int iheight;
   int ibpp;
@@ -61,8 +54,18 @@ computeBounds(int srcwidth, int srcheight,
 	      int maxwidth, int maxheight, int scalemode,
               int *widthPtr, int *heightPtr);
 int
-computeTransform(int srcwidth, int srcheight, int destwidth, int destheight, int scalemode,
-                 Rect *srcrect, Rect *destrect);
+computeTransform(int srcwidth, int srcheight, const Vrect* cropRect,
+                 int destwidth, int destheight, int scalemode,
+                 Vrect *srcrect, Vrect *destrect);
+
+int
+YmaginePrepareTransform(Vbitmap* vbitmap, YmagineFormatOptions *options,
+                        int imagewidth, int imageheight,
+                        Vrect* srcrect, Vrect* destrect);
+
+Vrect*
+computeCropRect(Vrect *croprect, YmagineFormatOptions *options,
+                int width, int height);
 
 int
 copyBitmap(unsigned char *ipixels, int iwidth, int iheight, int ipitch,
@@ -77,11 +80,7 @@ imageFill(unsigned char *opixels,
 int
 imageFillOut(unsigned char *opixels, int owidth, int oheight,
 	     int opitch, int ocolormode,
-	     Rect *rect);
-
-int bltLine(unsigned char *opixels, int owidth, int obpp,
-	    unsigned char *ipixels, int iwidth, int ibpp);
-
+	     Vrect *rect);
 
 #ifdef __cplusplus
 };

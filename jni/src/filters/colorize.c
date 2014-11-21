@@ -181,7 +181,7 @@ Ymagine_colorize(Vbitmap *vbitmap, int color)
 {
   int rc = YMAGINE_ERROR;
 
-  if (VbitmapLock(vbitmap) >= 0) {
+  if (VbitmapLock(vbitmap) == YMAGINE_OK) {
     unsigned char *pixels = VbitmapBuffer(vbitmap);
     int width = VbitmapWidth(vbitmap);
     int height = VbitmapHeight(vbitmap);

@@ -17,10 +17,17 @@
 #include "ymagine/ymagine.h"
 
 #include "ymagine_config.h"
+
 #if YOSAL_CONFIG_ANDROID_EMULATION
 #include "compat/android/bitmap.h"
 #else
 #include "android/bitmap.h"
+#if 0
+#include "android/rect.h"
+#include "android/window.h"
+#include "android/native_window.h"
+#include "android/native_window_jni.h"
+#endif
 #endif
 
 /* Standard Posix headers required for private APIs */
@@ -33,12 +40,15 @@
 
 /* Private API */
 #include "formats/format.h"
+#include "graphics/fixedpoint.h"
 #include "graphics/xmp.h"
+#include "graphics/region.h"
 #include "graphics/bitmap.h"
 #include "graphics/quantize.h"
 #include "filters/blur.h"
 #include "filters/sobel.h"
 #include "graphics/color.h"
+#include "graphics/transformer.h"
 #include "shaders/filterutils.h"
 
 #ifdef __cplusplus

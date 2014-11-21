@@ -59,6 +59,8 @@ typedef struct
 #include "webp/decode.h"
 #include "dec/decode_vp8.h"
 
+#include "webp/encode.h"
+
 /* Assume integer are at least 32 bits */
 static unsigned int getInt32L(const void *in) {
   unsigned int result;
@@ -136,9 +138,7 @@ static int WebpCheckHeader(const char *header, int len)
  *
  * WEBPInit --
  *
- *		This function is invoked by each of the Tk image handler
- *		procs (MatchStringProc, etc.) to initialize state information
- *		used during the course of decoding a WEBP image.
+ *		Initialize a WEBP decoding context
  *
  * Results:
  *		YMAGINE_OK, or YMAGINE_ERROR if initialization failed.
@@ -162,21 +162,12 @@ WEBPInit(WEBPDec* pSrc, Ychannel *f, Vbitmap *bitmap)
 /*
  *----------------------------------------------------------------------
  *
- * WEBPCleanup --
+ * WEBPFini --
  *
- *		This function is invoked by each of the Tk image handler
- *		procs (MatchStringProc, etc.) prior to returning to Tcl
- *		in order to clean up any allocated memory and call other
- *		cleanup handlers such as zlib's inflateEnd/deflateEnd.
+ *		This function cleans up a WEBP decoding context
  *
  * Results:
  *		None.
- *
- * Side effects:
- *		The reference count of the -data Tcl_Obj*, if any, is
- *		decremented.  Buffers are freed, zstreams are closed.
- *      The WEBPDec should not be used for any purpose without being
- *      reinitialized post-cleanup.
  *
  *----------------------------------------------------------------------
  */
@@ -211,13 +202,12 @@ WEBPFini(WEBPDec* pWEBP)
 
 static int
 WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap,
-           int maxWidth, int maxHeight, int scaleMode, int quality)
+           YmagineFormatOptions *options)
 {
   int contentSize;
-  int inwidth, inheight;
   int origWidth = 0;
   int origHeight = 0;
-  int width, height;
+  int quality;
   unsigned char header[WEBP_HEADER_SIZE + 32];
   int headerlen;
   int toRead;
@@ -228,14 +218,13 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap,
   unsigned char *odata;
   int rc;
   int premultiplied = 1;
-  Rect srcrect;
-  Rect destrect;
+  Vrect srcrect;
+  Vrect destrect;
+  WebPIDecoder* idec;
 
-  if (quality < 0) {
-    quality = 85;
-  }
-  if (quality > 100) {
-    quality = 100;
+  if (options == NULL) {
+    /* Options argument is mandatory */
+    return 0;
   }
 
   headerlen = YchannelRead(pSrc->channel, (char *) header, sizeof(header));
@@ -246,54 +235,48 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap,
   /* Check WEBP header */
   contentSize = WebpCheckHeader((const char*) header, headerlen);
   if (contentSize <= 0) {
-    return YMAGINE_ERROR;
+    return 0;
   }
-  ALOGV("Input is %d bytes", contentSize);
 
   if (WebPGetInfo(header, headerlen, &origWidth, &origHeight) == 0) {
     ALOGD("invalid VP8 header");
-    return YMAGINE_ERROR;
+    return 0;
   }
 
   if (origWidth <= 0 || origHeight <= 0) {
-    return YMAGINE_ERROR;
+    return 0;
   }
 
-  inwidth = VbitmapWidth(vbitmap);
-  inheight = VbitmapHeight(vbitmap);
-  
-  srcrect.x = 0;
-  srcrect.y = 0;
-  srcrect.width = origWidth;
-  srcrect.height = origHeight;
+  YmagineFormatOptions_invokeCallback(options, YMAGINE_IMAGEFORMAT_WEBP,
+                                      origWidth, origHeight);
 
-  if (inwidth > 0 && inheight > 0) {
-    width = inwidth;
-    height = inheight;
+  if (YmaginePrepareTransform(vbitmap, options,
+                              origWidth, origHeight,
+                              &srcrect, &destrect) != YMAGINE_OK) {
+    return 0;
+  }
 
-    computeTransform(origWidth, origHeight,
-                     maxWidth, maxHeight, scaleMode,
-                     &srcrect, &destrect);
-  } else {
-    int reqwidth, reqheight;
+#if YMAGINE_DEBUG_WEBP
+  ALOGD("size: %dx%d req: %dx%d %s -> output: %dx%d",
+        origWidth, origHeight,
+        destrect.width, destrect.height,
+        (options->scalemode == YMAGINE_SCALE_CROP) ? "crop" :
+        (options->scalemode == YMAGINE_SCALE_FIT ? "fit" : "letterbox"),
+        destrect.width, destrect.height);
+#endif
 
-    computeBounds(origWidth, origHeight,
-                  maxWidth, maxHeight, scaleMode,
-                  &reqwidth, &reqheight);
-    if (VbitmapResize(vbitmap, reqwidth, reqheight) != YMAGINE_OK) {
-      return YMAGINE_ERROR;
+  if (vbitmap != NULL) {
+    if (options->resizable) {
+      destrect.x = 0;
+      destrect.y = 0;
+      if (VbitmapResize(vbitmap, destrect.width, destrect.height) != YMAGINE_OK) {
+        return 0;
+      }
     }
     if (VbitmapType(vbitmap) == VBITMAP_NONE) {
-      return YMAGINE_OK;
+      /* Decode bounds only, return positive number (number of lines) on success */
+      return VbitmapHeight(vbitmap);
     }
-
-    width = VbitmapWidth(vbitmap);
-    height = VbitmapHeight(vbitmap);
-
-    destrect.x = 0;
-    destrect.y = 0;
-    destrect.width = width;
-    destrect.height = height;
   }
 
   pSrc->bitmap = vbitmap;
@@ -312,11 +295,14 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap,
 
     pSrc->inwidth = origWidth;
     pSrc->inheight = origHeight;
-    pSrc->outwidth = width;
-    pSrc->outheight = height;
+    pSrc->outwidth = destrect.width;
+    pSrc->outheight = destrect.height;
 
     if (odata == NULL) {
       ALOGD("failed to get reference to pixel buffer");
+      rc = YMAGINE_ERROR;
+    } else if (oformat != VBITMAP_COLOR_RGBA && oformat != VBITMAP_COLOR_RGB) {
+      ALOGD("currently only support RGB, RGBA webp decoding");
       rc = YMAGINE_ERROR;
     } else {
       WebPDecoderConfig config;
@@ -329,13 +315,13 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap,
 
       WebPInitDecoderConfig(&config);
 
+      quality = YmagineFormatOptions_normalizeQuality(options);
       if (quality < 90) {
         config.options.no_fancy_upsampling = 1;
       }
       if (quality < 60) {
         config.options.bypass_filtering = 1;
       }
-
       config.options.use_threads = 1;
 
       if (srcrect.x != 0 || srcrect.y != 0 || srcrect.width != origWidth || srcrect.height != origHeight) {
@@ -346,74 +332,75 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap,
         config.options.crop_width = srcrect.width;
         config.options.crop_height = srcrect.height;
       }
-      if (width != origWidth || height != origHeight) {
+      if (pSrc->outwidth != pSrc->inwidth || pSrc->outheight != pSrc->inheight) {
         config.options.use_scaling = 1;
-        config.options.scaled_width = width;
-        config.options.scaled_height = height;
+        config.options.scaled_width = pSrc->outwidth;
+        config.options.scaled_height = pSrc->outheight;
       }
 
       rc = YMAGINE_ERROR;
-      if (WebPGetFeatures(input, inputlen, &config.input) == VP8_STATUS_OK) {
-        WebPIDecoder* idec;
 
-        // Specify the desired output colorspace:
+      // Specify the desired output colorspace:
+      if (oformat == VBITMAP_COLOR_RGBA) {
         if (premultiplied) {
           /* Premultiplied */
           config.output.colorspace = MODE_rgbA;
         } else {
           config.output.colorspace = MODE_RGBA;
         }
-        // Have config.output point to an external buffer:
-        config.output.u.RGBA.rgba = (uint8_t*) pSrc->outbuffer;
-        config.output.u.RGBA.stride = pSrc->outstride;
-        config.output.u.RGBA.size = pSrc->outstride * pSrc->outheight;
-        config.output.is_external_memory = 1;
+      } else {
+        config.output.colorspace = MODE_RGB;
+      }
 
-        idec = WebPIDecode(NULL, 0, &config);
-        if (idec != NULL) {
-          VP8StatusCode status;
+      // Have config.output point to an external buffer:
+      config.output.u.RGBA.rgba = (uint8_t*) pSrc->outbuffer;
+      config.output.u.RGBA.stride = pSrc->outstride;
+      config.output.u.RGBA.size = pSrc->outstride * pSrc->outheight;
+      config.output.is_external_memory = 1;
 
-          status = WebPIAppend(idec, header, headerlen);
-          if (status == VP8_STATUS_OK || status == VP8_STATUS_SUSPENDED) {
-            int bytes_remaining = toRead;
-            int bytes_read;
-            int bytes_req;
-            unsigned char rbuf[8192];
+      idec = WebPIDecode(NULL, 0, &config);
+      if (idec != NULL) {
+        VP8StatusCode status;
 
-            // See WebPIUpdate(idec, buffer, size_of_transmitted_buffer);
+        status = WebPIAppend(idec, header, headerlen);
+        if (status == VP8_STATUS_OK || status == VP8_STATUS_SUSPENDED) {
+          int bytes_remaining = toRead;
+          int bytes_read;
+          int bytes_req;
+          unsigned char rbuf[8192];
 
-            bytes_req = sizeof(rbuf);
-            while (bytes_remaining > 0) {
-              if (bytes_req > bytes_remaining) {
-                bytes_req = bytes_remaining;
-              }
-              bytes_read = YchannelRead(pSrc->channel, rbuf, bytes_req);
-              if (bytes_read <= 0) {
-                break;
-              }
-              status = WebPIAppend(idec, (uint8_t*) rbuf, bytes_read);
-              if (status == VP8_STATUS_OK) {
-                break;
-              } else if (status == VP8_STATUS_SUSPENDED) {
-                if (bytes_remaining > 0) {
-                  bytes_remaining -= bytes_read;
-                }
-              } else {
-                /* error */
-                break;
-              }
-              // The above call decodes the current available buffer.
-              // Part of the image can now be refreshed by calling
-              // WebPIDecGetRGB()/WebPIDecGetYUVA() etc.
+          // See WebPIUpdate(idec, buffer, size_of_transmitted_buffer);
+          bytes_req = sizeof(rbuf);
+          while (bytes_remaining > 0) {
+            if (bytes_req > bytes_remaining) {
+              bytes_req = bytes_remaining;
             }
+            bytes_read = YchannelRead(pSrc->channel, rbuf, bytes_req);
+            if (bytes_read <= 0) {
+              break;
+            }
+            status = WebPIAppend(idec, (uint8_t*) rbuf, bytes_read);
+            if (status == VP8_STATUS_OK) {
+              rc = YMAGINE_OK;
+              break;
+            } else if (status == VP8_STATUS_SUSPENDED) {
+              if (bytes_remaining > 0) {
+                bytes_remaining -= bytes_read;
+              }
+            } else {
+              /* error */
+              break;
+            }
+            // The above call decodes the current available buffer.
+            // Part of the image can now be refreshed by calling
+            // WebPIDecGetRGB()/WebPIDecGetYUVA() etc.
           }
         }
-
-        // the object doesn't own the image memory, so it can now be deleted.
-        WebPIDelete(idec);  
-
-        WebPFreeDecBuffer(&config.output);
       }
+
+      // the object doesn't own the image memory, so it can now be deleted.
+      WebPIDelete(idec);
+      WebPFreeDecBuffer(&config.output);
     }
 
     VbitmapUnlock(vbitmap);
@@ -422,7 +409,6 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap,
   if (input) {
     Ymem_free((char*) input);
   }
-
   if (!pSrc->isdirect) {
     Ymem_free(pSrc->outbuffer);
   }
@@ -431,16 +417,14 @@ WEBPDecode(WEBPDec* pSrc, Vbitmap *vbitmap,
     return origHeight;
   }
 
-  return -1;
+  return 0;
 }
 
 #endif /* HAVE_WEBP */
 
 int
 decodeWEBP(Ychannel *channel, Vbitmap *vbitmap,
-           int maxWidth, int maxHeight,
-           int scaleMode, int quality,
-           PixelShader* pixelShader)
+           YmagineFormatOptions *options)
 {
   int nlines = -1;
 #if HAVE_WEBP
@@ -456,7 +440,7 @@ decodeWEBP(Ychannel *channel, Vbitmap *vbitmap,
 
 #if HAVE_WEBP
   if (WEBPInit(&webp, channel, vbitmap) == YMAGINE_OK) {
-    nlines = WEBPDecode(&webp, vbitmap, maxWidth, maxHeight, scaleMode, quality);
+    nlines = WEBPDecode(&webp, vbitmap, options);
     WEBPFini(&webp);
   }
 #endif
@@ -464,12 +448,130 @@ decodeWEBP(Ychannel *channel, Vbitmap *vbitmap,
   return nlines;
 }
 
+static int
+WebPYchannelWrite(const uint8_t* data, size_t data_size,
+                  const WebPPicture* picture)
+{
+  Ychannel *channel = (Ychannel*) picture->custom_ptr;
+
+  if (channel != NULL) {
+    if (YchannelWrite(channel, data, data_size) != data_size) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 int
-encodeWEBP(Vbitmap *vbitmap, Ychannel *channelout, int quality)
+encodeWEBP(Vbitmap *vbitmap, Ychannel *channelout, YmagineFormatOptions *options)
 {
   int rc = YMAGINE_ERROR;
+  WebPConfig config;
+  WebPPicture picture;
+  WebPPreset preset = WEBP_PRESET_PHOTO; // One of DEFAULT, PICTURE, PHOTO, DRAWING, ICON or TEXT
+  int width;
+  int height;
+  int pitch;
+  int quality;
+  const unsigned char *pixels;
+  int colormode;
 
-  return rc;
+  /*
+   * List of encoding options for WebP config
+   *   int lossless;           // Lossless encoding (0=lossy(default), 1=lossless).
+   *   float quality;          // between 0 (smallest file) and 100 (biggest)
+   *   int method;             // quality/speed trade-off (0=fast, 6=slower-better)
+   *
+   *   WebPImageHint image_hint;  // Hint for image type (lossless only for now).
+   *
+   *   // Parameters related to lossy compression only:
+   *   int target_size;        // if non-zero, set the desired target size in bytes.
+   *                           // Takes precedence over the 'compression' parameter.
+   *   float target_PSNR;      // if non-zero, specifies the minimal distortion to
+   *                           // try to achieve. Takes precedence over target_size.
+   *   int segments;           // maximum number of segments to use, in [1..4]
+   *   int sns_strength;       // Spatial Noise Shaping. 0=off, 100=maximum.
+   *   int filter_strength;    // range: [0 = off .. 100 = strongest]
+   *   int filter_sharpness;   // range: [0 = off .. 7 = least sharp]
+   *   int filter_type;        // filtering type: 0 = simple, 1 = strong (only used
+   *                           // if filter_strength > 0 or autofilter > 0)
+   *   int autofilter;         // Auto adjust filter's strength [0 = off, 1 = on]
+   *   int alpha_compression;  // Algorithm for encoding the alpha plane (0 = none,
+   *                           // 1 = compressed with WebP lossless). Default is 1.
+   *   int alpha_filtering;    // Predictive filtering method for alpha plane.
+   *                           //  0: none, 1: fast, 2: best. Default if 1.
+   *   int alpha_quality;      // Between 0 (smallest size) and 100 (lossless).
+   *                           // Default is 100.
+   *   int pass;               // number of entropy-analysis passes (in [1..10]).
+   *
+   *   int show_compressed;    // if true, export the compressed picture back.
+   *                           // In-loop filtering is not applied.
+   *   int preprocessing;      // preprocessing filter (0=none, 1=segment-smooth)
+   *   int partitions;         // log2(number of token partitions) in [0..3]
+   *                           // Default is set to 0 for easier progressive decoding.
+   *   int partition_limit;    // quality degradation allowed to fit the 512k limit on
+   *                           // prediction modes coding (0: no degradation,
+   *                           // 100: maximum possible degradation).
+   */
+
+  colormode = VbitmapColormode(vbitmap);
+
+  if (colormode != VBITMAP_COLOR_RGBA && colormode != VBITMAP_COLOR_RGB) {
+    ALOGD("currently only support RGB, RGBA webp encoding");
+    return rc;
+  }
+
+  quality = YmagineFormatOptions_normalizeQuality(options);
+
+  if (!WebPConfigPreset(&config, preset, (float) quality)) {
+    return YMAGINE_ERROR;   // version error
+  }
+
+  if (options && options->accuracy >= 0) {
+    int method = options->accuracy / 15;
+    if (method > 6) {
+      method = 6;
+    }
+    config.method = method;
+  }
+
+  if (!WebPValidateConfig(&config)) {
+    // parameter ranges verification failed
+    return YMAGINE_ERROR;
+  }
+
+  rc = VbitmapLock(vbitmap);
+  if (rc < 0) {
+    ALOGE("AndroidBitmap_lockPixels() failed");
+    return YMAGINE_ERROR;
+  }
+
+  width = VbitmapWidth(vbitmap);
+  height = VbitmapHeight(vbitmap);
+  pitch = VbitmapPitch(vbitmap);
+  pixels = VbitmapBuffer(vbitmap);
+
+  if (WebPPictureInit(&picture)) {
+    picture.use_argb = 1;
+    picture.width = width;
+    picture.height = height;
+    picture.writer = WebPYchannelWrite;
+    picture.custom_ptr = channelout;
+
+    if (colormode == VBITMAP_COLOR_RGBA) {
+      WebPPictureImportRGBA(&picture, pixels, pitch);
+    } else {
+      WebPPictureImportRGB(&picture, pixels, pitch);
+    }
+
+    WebPEncode(&config, &picture);
+
+    WebPPictureFree(&picture);
+  }
+
+  VbitmapUnlock(vbitmap);
+
+  return YMAGINE_OK;
 }
 
 int

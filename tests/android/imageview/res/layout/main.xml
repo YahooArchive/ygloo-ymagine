@@ -4,13 +4,23 @@
     android:layout_height="fill_parent"
     android:orientation="vertical" >
 
-    <ImageView
+    <android.widget.ImageView
+        android:id="@+id/imageViewBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:adjustViewBounds="true"
+        android:cropToPadding="true"
+        android:scaleType="fitCenter"
+        android:src="@drawable/chessboard_blue" />
+
+    <com.yahoo.mobile.client.android.ymagine.widget.PhotoView
         android:id="@+id/imageView1"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:adjustViewBounds="true"
         android:cropToPadding="true"
         android:scaleType="fitCenter"
+        android:background="@android:color/transparent" 
         android:src="@drawable/nophoto" />
     
     <LinearLayout
@@ -24,6 +34,12 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal" >
 
+            <Button
+                android:id="@+id/btnPrev"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Prev" />
+            
             <Button
                 android:id="@+id/btnLoadNative"
                 android:layout_width="wrap_content"
@@ -41,6 +57,12 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Transcode" />
+            
+            <Button
+                android:id="@+id/btnNext"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Next" />
         </LinearLayout>
 
         <LinearLayout
@@ -50,21 +72,27 @@
 
             <CheckBox
                 android:id="@+id/checkbox_bounds"
-                android:layout_width="90dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/bounds" />
 
             <CheckBox
                 android:id="@+id/checkbox_quantize"
-                android:layout_width="90dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/quantize" />
 
             <CheckBox
                 android:id="@+id/checkbox_colorize"
-                android:layout_width="90dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/colorize" />
+
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" >
 
             <CheckBox
                 android:id="@+id/checkbox_blur"
@@ -85,7 +113,6 @@
                 android:layout_height="wrap_content"
                 android:text="" />
         </LinearLayout>
-
         <TextView
             android:id="@+id/messageView"
             android:layout_width="wrap_content"

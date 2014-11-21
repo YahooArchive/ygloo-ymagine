@@ -52,7 +52,7 @@ public class Vbitmap {
     }
     
     public Vbitmap() {
-        this(native_create());
+        this(com.yahoo.ymagine.Ymagine.hasNative() ? native_create() : 0L);
     }
 
     private static class VbitmapFinalizer {
@@ -63,7 +63,7 @@ public class Vbitmap {
         }
         
         @Override
-        public void finalize() {
+        protected void finalize() {
             try {
                 super.finalize();
             } catch (Throwable t) {
@@ -76,26 +76,29 @@ public class Vbitmap {
 
     public static Vbitmap create() {
         Vbitmap vbitmap = null;
-        long nativeHandle = native_create();
-        if (nativeHandle != 0L) {
-            vbitmap = new Vbitmap(nativeHandle);
+        long nativeHandle = 0L;
+        if (com.yahoo.ymagine.Ymagine.hasNative()) {
+            nativeHandle = native_create();
+            if (nativeHandle != 0L) {
+                vbitmap = new Vbitmap(nativeHandle);
+            }
         }
 
         return vbitmap;
     }
 
     private synchronized long retain() {
-        long handle = native_retain(mNativeHandle);
-        if (handle == 0L) {
+        long nativeHandle = native_retain(mNativeHandle);
+        if (nativeHandle == 0L) {
             return 0L;
         }
 
-        return handle;
+        return nativeHandle;
     }
 
     private synchronized long release() {
-        long handle = native_release(mNativeHandle);
-        if (handle == 0L) {
+        long nativeHandle = native_release(mNativeHandle);
+        if (nativeHandle == 0L) {
             return 0L;
         }
 
@@ -136,14 +139,14 @@ public class Vbitmap {
     }
 
     public void recycle() {
+        if (mNativeHandle == 0L) {
+            return;
+        }
+
         long nativeHandle = mNativeHandle;
 
         mNativeHandle = 0L;
 
         native_destructor(nativeHandle);
-    }
-
-    static {
-        Ymagine.Init();
     }
 }

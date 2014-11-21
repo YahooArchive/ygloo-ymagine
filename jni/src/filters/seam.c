@@ -454,7 +454,7 @@ int Vbitmap_seamRender(Vbitmap *vbitmap, VbitmapSeamMap *seamMap, int toremove)
     toremove = -toremove;
   }
 
-  if (VbitmapLock(vbitmap) >= 0) {
+  if (VbitmapLock(vbitmap) == YMAGINE_OK) {
     pixels = VbitmapBuffer(vbitmap);
     width = VbitmapWidth(vbitmap);
     height = VbitmapHeight(vbitmap);
@@ -551,7 +551,7 @@ Vbitmap_seamPrepare(Vbitmap *vbitmap)
     return NULL;
   }
 
-  if (VbitmapLock(vbitmap) >= 0) {
+  if (VbitmapLock(vbitmap) == YMAGINE_OK) {
     pixels = VbitmapBuffer(vbitmap);
     width = VbitmapWidth(vbitmap);
     height = VbitmapHeight(vbitmap);
@@ -593,7 +593,7 @@ Vbitmap_seamCarve(Vbitmap *vbitmap, VbitmapSeamMap *seamMap, Vbitmap *outbitmap)
     return YMAGINE_ERROR;
   }
 
-  if (VbitmapLock(vbitmap) >= 0) {
+  if (VbitmapLock(vbitmap) == YMAGINE_OK) {
     pixels = VbitmapBuffer(vbitmap);
     width = VbitmapWidth(vbitmap);
     height = VbitmapHeight(vbitmap);
@@ -603,7 +603,7 @@ Vbitmap_seamCarve(Vbitmap *vbitmap, VbitmapSeamMap *seamMap, Vbitmap *outbitmap)
     if (seamMap == NULL || seamMap->width != width || seamMap->height != height) {
       ALOGD("invalid seam map");
     } else {
-      if (VbitmapLock(outbitmap) >= 0) {
+      if (VbitmapLock(outbitmap) == YMAGINE_OK) {
         opixels = VbitmapBuffer(outbitmap);
         owidth = VbitmapWidth(outbitmap);
         oheight = VbitmapHeight(outbitmap);

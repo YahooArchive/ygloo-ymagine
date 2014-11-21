@@ -10,6 +10,8 @@
  * the License. See accompanying LICENSE file.
  */
 
+#define LOG_TAG "ymagine::bitmap"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -92,13 +94,136 @@ computeBounds(int srcwidth, int srcheight,
   return YMAGINE_OK;
 }
 
+Vrect*
+computeCropRect(Vrect *croprect, YmagineFormatOptions *options,
+                int width, int height)
+{
+  Vrect full, current;
+
+  if (croprect == NULL) {
+    return NULL;
+  }
+
+  if (width < 0) {
+    width = 0;
+  }
+  if (height < 0) {
+    height = 0;
+  }
+
+  full.x = 0;
+  full.y = 0;
+  full.width = width;
+  full.height = height;
+
+  if (options == NULL || width <= 0 || height <= 0) {
+    current.x = full.x;
+    current.y = full.y;
+    current.width = full.width;
+    current.height = full.height;
+  } else {
+    if (options->cropoffsetmode == CROP_MODE_ABSOLUTE) {
+      current.x = options->cropx;
+      current.y = options->cropy;
+    } else if (options->cropoffsetmode == CROP_MODE_RELATIVE) {
+      current.x = (int)(options->cropxp * width);
+      current.y = (int)(options->cropyp * height);
+    } else {
+      current.x = 0;
+      current.y = 0;
+    }
+
+    if (options->cropsizemode == CROP_MODE_ABSOLUTE) {
+      current.width = options->cropwidth;
+      current.height = options->cropheight;
+
+      if (options->cropwidth > 0 && current.width == 0) {
+        current.width = 1;
+      }
+      if (options->cropheight > 0 && current.height == 0) {
+        current.height = 1;
+      }
+    } else if (options->cropsizemode == CROP_MODE_RELATIVE) {
+      current.width = (int)(options->cropwidthp * width);
+      current.height = (int)(options->cropheightp * height);
+    } else {
+      current.width = width;
+      current.height = height;
+    }
+  }
+
+  /* Normalize region to be stritly inside input image area */
+  VrectComputeIntersection(&full, &current, croprect);
+
+  return croprect;
+}
+
 /* Transform constraints on source and origin into origin and destination regions */
 int
-computeTransform(int srcwidth, int srcheight, int destwidth, int destheight,
+computeTransform(int srcwidth, int srcheight, const Vrect *croprect,
+                 int destwidth, int destheight,
                  int scalemode,
-                 Rect *srcrect, Rect *destrect)
+                 Vrect *srcrect, Vrect *destrect)
 {
-  if (srcwidth <= 0 || srcheight <= 0 || destwidth <= 0 || destheight <= 0) {
+  YBOOL invalid = (srcwidth <= 0) || (srcheight <= 0) ||
+      (destwidth <= 0) || (destheight <= 0);
+
+#if YMAGINE_DEBUG
+  ALOGD("compute transform: src=%dx%d dst=%dx%d scale=%s",
+        srcwidth, srcheight, destwidth, destheight,
+        Ymagine_scaleModeStr(scalemode));
+
+  if (croprect != NULL) {
+    ALOGD("compute transform: croprect=%dx%d@%d,%d",
+          croprect->width, croprect->height, croprect->x, croprect->y);
+  }
+#endif
+
+  if (!invalid) {
+    if (croprect != NULL) {
+      /* Intersect source region with crop region */
+      if (croprect->width <= 0 || croprect->height <= 0) {
+        invalid = YTRUE;
+      } else {
+        int cropwidth = croprect->width;
+        int cropheight = croprect->height;
+        int cropx = croprect->x;
+        int cropy = croprect->y;
+
+        if (cropx < 0) {
+          cropwidth += cropx;
+          cropx = 0;
+        }
+        if (cropy < 0) {
+          cropheight += cropy;
+          cropy = 0;
+        }
+        if (cropx + cropwidth > srcwidth) {
+          cropwidth = srcwidth - cropx;
+        }
+        if (cropy + cropheight > srcheight) {
+          cropheight = srcheight - cropy;
+        }
+
+        if (cropx >= srcwidth ||
+            cropy >= srcheight ||
+            cropwidth <= 0 ||
+            cropheight <= 0) {
+          invalid = YTRUE;
+        } else {
+          srcwidth = cropwidth;
+          srcheight = cropheight;
+          srcrect->x = cropx;
+          srcrect->y = cropy;
+        }
+      }
+    } else {
+      srcrect->x = 0;
+      srcrect->y = 0;
+    }
+  }
+
+  if (invalid) {
     destrect->x = 0;
     destrect->y = 0;
     destrect->width = 0;
@@ -117,8 +242,6 @@ computeTransform(int srcwidth, int srcheight, int destwidth, int destheight,
     destrect->y = 0;
     destrect->width = destwidth;
     destrect->height = destheight;
-    srcrect->x = 0;
-    srcrect->y = 0;
     srcrect->width = destwidth;
     srcrect->height = destheight;
   } else if (srcwidth * destheight == srcheight * destwidth) {
@@ -127,8 +250,6 @@ computeTransform(int srcwidth, int srcheight, int destwidth, int destheight,
     destrect->y = 0;
     destrect->width = destwidth;
     destrect->height = destheight;
-    srcrect->x = 0;
-    srcrect->y = 0;
     srcrect->width = srcwidth;
     srcrect->height = srcheight;
   } else if (srcwidth * destheight > srcheight * destwidth) {
@@ -139,19 +260,29 @@ computeTransform(int srcwidth, int srcheight, int destwidth, int destheight,
       destrect->width = destwidth;
       destrect->height = destheight;
       srcrect->width = (srcheight * destwidth) / destheight;
+
+      if (srcrect->width == 0) {
+        srcrect->width = 1;
+      }
+
       srcrect->height = srcheight;
-      srcrect->x = (srcwidth - srcrect->width) / 2;
-      srcrect->y = 0;
+      /* when croprect != null, srcrect->x = cropx, srcwidth = cropwidth,
+       and cropx + cropwidh <= original srcwidth, thus
+       srcrect->x + (srcwidth - srcrect->width) / 2 <= original srcwidth */
+      srcrect->x += (srcwidth - srcrect->width) / 2;
     } else {
       /* Letter box */
       destrect->width = destwidth;
       destrect->height = (srcheight * destrect->width) / srcwidth;
+
+      if (destrect->height == 0) {
+        destrect->height = 1;
+      }
+
       destrect->x = 0;
       destrect->y = (destheight - destrect->height) / 2;
-      srcrect->width = srcwidth;;
+      srcrect->width = srcwidth;
       srcrect->height = srcheight;
-      srcrect->x = 0;
-      srcrect->y = 0;
     }
   } else {
     if (scalemode == YMAGINE_SCALE_CROP) {
@@ -162,27 +293,95 @@ computeTransform(int srcwidth, int srcheight, int destwidth, int destheight,
       destrect->height = destheight;
       srcrect->width = srcwidth;
       srcrect->height = (srcwidth * destheight) / destwidth;
-      srcrect->x = 0;
-      srcrect->y = (srcheight - srcrect->height) / 2;
+
+      if (srcrect->height == 0) {
+        srcrect->height = 1;
+      }
+
+      /* when croprect != null, srcrect->y = cropy, srcheight = cropheight,
+       and cropy + cropheight <= original srcheight, thus
+       srcrect->y + (srcheight - srcrect->height) / 2 <= original srcheight */
+      srcrect->y += (srcheight - srcrect->height) / 2;
     } else {
       /* Letter box */
       destrect->height = destheight;
       destrect->width = (srcwidth * destrect->height) / srcheight;
+
+      if (destrect->width == 0) {
+        destrect->width = 1;
+      }
+
       destrect->x = (destwidth - destrect->width) / 2;
       destrect->y = 0;
-      srcrect->width = srcwidth;;
+      srcrect->width = srcwidth;
       srcrect->height = srcheight;
-      srcrect->x = 0;
-      srcrect->y = 0;
     }
   }
+
+#if YMAGINE_DEBUG
+  if (srcrect != NULL && destrect != NULL) {
+    ALOGD("compute transform: srcrect=%dx%d@%d,%d dstrect=%dx%d@%d,%d",
+          srcrect->width, srcrect->height, srcrect->x, srcrect->y,
+          destrect->width, destrect->height, destrect->x, destrect->y);
+  }
+#endif
   
+  return YMAGINE_OK;
+}
+
+
+int
+YmaginePrepareTransform(Vbitmap* vbitmap, YmagineFormatOptions *options,
+                        int imagewidth, int imageheight,
+                        Vrect* srcrect, Vrect* destrect)
+{
+  Vrect croprect;
+  int owidth;
+  int oheight;
+
+  if (srcrect == NULL || destrect == NULL) {
+    return YMAGINE_ERROR;
+  }
+
+  if (computeCropRect(&croprect, options, imagewidth, imageheight) == NULL) {
+    return YMAGINE_ERROR;
+  }
+
+  /* Never return an image larger than the input */
+  if (vbitmap != NULL && !options->resizable) {
+    owidth = VbitmapWidth(vbitmap);
+    oheight = VbitmapHeight(vbitmap);
+  } else {
+    owidth = options->maxwidth;
+    oheight = options->maxheight;
+
+    if (owidth < 0) {
+      owidth = imagewidth;
+    }
+    if (oheight < 0) {
+      oheight = imageheight;
+    }
+
+    if (owidth > croprect.width) {
+      owidth = croprect.width;
+    }
+    if (oheight > croprect.height) {
+      oheight = croprect.height;
+    }
+  }
+
+  computeTransform(croprect.width, croprect.height, NULL,
+                   owidth, oheight, options->scalemode,
+                   srcrect, destrect);
+  srcrect->x += croprect.x;
+  srcrect->y += croprect.y;
+
   return YMAGINE_OK;
 }
 
 YOPTIMIZE_SPEED int
 imageFillOut(unsigned char *opixels, int owidth, int oheight, int opitch,
-             int ocolormode, Rect *rect)
+             int ocolormode, Vrect *rect)
 {
   if (rect == NULL) {
     imageFill(opixels, owidth, oheight, opitch, ocolormode, 0, 0, owidth, oheight);
@@ -229,8 +428,8 @@ copyBitmap(unsigned char *ipixels, int iwidth, int iheight, int ipitch,
   unsigned char* prevptr;
   int srcy, prevsrcy;
   int hdenom, vdenom;
-  Rect srcrect;
-  Rect destrect;
+  Vrect srcrect;
+  Vrect destrect;
   
   if (iwidth <= 0 || iheight <= 0 || ipixels == NULL) {
     return YMAGINE_OK;
@@ -239,7 +438,7 @@ copyBitmap(unsigned char *ipixels, int iwidth, int iheight, int ipitch,
     return YMAGINE_OK;
   }
   
-  computeTransform(iwidth, iheight, owidth, oheight, scalemode, &srcrect, &destrect);
+  computeTransform(iwidth, iheight, NULL, owidth, oheight, scalemode, &srcrect, &destrect);
   imageFillOut(opixels, owidth, oheight, VBITMAP_COLOR_RGBA, opitch, &destrect);
   
   /* Assume RGBA format for input and output */
@@ -357,127 +556,6 @@ imageFill(unsigned char *opixels, int owidth, int oheight,
         nextp += opitch;
         memcpy(nextp, baseline, linelength);
       }
-    }
-  }
-  
-  return YMAGINE_OK;
-}
-
-/* For other fast averaging, see:
- * http://www.compuphase.com/graphic/scale3.htm
- */
-static YINLINE YOPTIMIZE_SPEED void
-PixelAverage(unsigned char *opixels, unsigned char *ipixels, int n, int ibpp)
-{
-#if 1
-  if (ibpp == 1) {
-    if (n == 1) {
-      opixels[0] = ipixels[0];
-    } else if (n == 2) {
-      opixels[0] = ((int) ipixels[0] + (int) ipixels[ibpp]) >> 1;
-    } else {
-      int i;
-      int gs = (int) ipixels[0];
-      
-      ipixels += ibpp;
-      
-      for (i = 1; i < n; i++) {
-        gs += ipixels[0];
-        ipixels += ibpp;
-      }
-      
-      opixels[0] = (unsigned char) (gs / n);
-    }
-  } else {
-    if (n == 1) {
-      opixels[0] = ipixels[0];
-      opixels[1] = ipixels[1];
-      opixels[2] = ipixels[2];
-    } else if (n == 2) {
-      opixels[0] = ((int) ipixels[0] + (int) ipixels[ibpp]) >> 1;
-      opixels[1] = ((int) ipixels[1] + (int) ipixels[ibpp + 1]) >> 1;
-      opixels[2] = ((int) ipixels[2] + (int) ipixels[ibpp + 2]) >> 1;
-    } else {
-      int i;
-      int r = (int) ipixels[0];
-      int g = (int) ipixels[1];
-      int b = (int) ipixels[2];
-      
-      ipixels += ibpp;
-      
-      for (i = 1; i < n; i++) {
-        r += ipixels[0];
-        g += ipixels[1];
-        b += ipixels[2];
-        ipixels += ibpp;
-      }
-      
-      opixels[0] = (unsigned char) (r / n);
-      opixels[1] = (unsigned char) (g / n);
-      opixels[2] = (unsigned char) (b / n);
-    }
-  }
-#else
-  opixels[0] = ipixels[0];
-  opixels[1] = ipixels[1];
-  opixels[2] = ipixels[2];
-  ipixels += bpp;
-  
-  while (--n > 1) {
-#if 0
-    opixels[0] = (opixels[0] >> 1) + (ipixels[0] >> 1);
-    opixels[1] = (opixels[1] >> 1) + (ipixels[1] >> 1);
-    opixels[2] = (opixels[2] >> 1) + (ipixels[2] >> 1);
-#else
-    opixels[0] = ((int) opixels[0] + (int) ipixels[0]) >> 1;
-    opixels[1] = ((int) opixels[1] + (int) ipixels[1]) >> 1;
-    opixels[2] = ((int) opixels[2] + (int) ipixels[2]) >> 1;
-#endif
-    ipixels += bpp;
-  }
-#endif
-}
-
-/* Scale scanline. Pixels must be in RGB or RGBX format */
-YOPTIMIZE_SPEED int
-bltLine(unsigned char *opixels, int owidth, int obpp,
-        unsigned char *ipixels, int iwidth, int ibpp)
-{
-  unsigned char *srcptr;
-  unsigned char *destptr;
-  int i;
-  int j0, j1;
-  
-  if (ibpp != obpp && (ibpp < 3 || obpp < 3)) {
-    /* Color space conversion not yet implemented */
-    return YMAGINE_ERROR;
-  }
-  
-  if (owidth == iwidth && ibpp == obpp) {
-    memcpy(opixels, ipixels, owidth * obpp);
-  } else {
-    destptr = opixels;
-    srcptr = ipixels;
-    
-    j1 = 0;
-    for (i = 0; i < owidth; i++) {
-      j0 = j1;
-      j1 = ((i + 1) * iwidth) / owidth;
-      
-      if (j0 == j1) {
-        destptr[0] = srcptr[0];
-        if (obpp == 3 || obpp == 4) {
-          destptr[1] = srcptr[1];
-          destptr[2] = srcptr[2];
-        }
-      } else {
-        PixelAverage(destptr, srcptr, j1 - j0, obpp);
-        srcptr += (j1 - j0) * ibpp;
-      }
-      if (obpp == 4) {
-        destptr[3] = 0xff;
-      }
-      destptr += obpp;
     }
   }
   

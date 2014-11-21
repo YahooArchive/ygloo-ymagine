@@ -41,6 +41,7 @@
 #define YMAGINE_DEBUG_BITMAPFACTORY 1
 #define YMAGINE_DEBUG_JPEG 1
 #define YMAGINE_DEBUG_WEBP 1
+#define YMAGINE_DEBUG_PNG 1
 #endif
 
 /* Platform settings */

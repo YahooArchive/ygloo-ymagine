@@ -54,7 +54,7 @@ public class Shader {
     }
     
     public Shader() {
-        this(native_create());
+        this(com.yahoo.ymagine.Ymagine.hasNative() ? native_create() : 0L);
     }
     
     private static class ShaderFinalizer {
@@ -65,7 +65,7 @@ public class Shader {
         }
         
         @Override
-        public void finalize() {
+        protected void finalize() {
             try {
                 super.finalize();
             } catch (Throwable t) {
@@ -78,9 +78,11 @@ public class Shader {
 
     public static Shader create() {
         Shader shader = null;
-        long nativeHandle = native_create();
-        if (nativeHandle != 0L) {
-            shader = new Shader(nativeHandle);
+        if (com.yahoo.ymagine.Ymagine.hasNative()) {
+            long nativeHandle = native_create();
+            if (nativeHandle != 0L) {
+                shader = new Shader(nativeHandle);
+            }
         }
 
         return shader;
@@ -138,10 +140,9 @@ public class Shader {
      * @return true if success
      */
     public boolean preset(InputStream preset) {
-        return (native_preset(mNativeHandle, preset) >= 0);
-    }
-    
-    static {
-        Ymagine.Init();
+        if (com.yahoo.ymagine.Ymagine.hasNative()) {
+            return (native_preset(mNativeHandle, preset) >= 0);
+        }
+        return false;
     }
 }

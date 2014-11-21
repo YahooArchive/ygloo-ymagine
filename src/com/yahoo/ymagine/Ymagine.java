@@ -18,21 +18,172 @@ import java.io.File;
 import java.lang.System;
 
 public class Ymagine {
+    private static final String[] DEFAULT_NATIVE_LIBRARIES = { "yahoo_ymagine" };
+    private static String[] sNativeLibraries = DEFAULT_NATIVE_LIBRARIES;
+    private enum NativeStatus {
+        UNINITIALIZED,
+        NEED_WORKAROUND,
+        DISABLED,
+        ENABLED
+    }
+
+    public enum ScaleType {
+        /* ordinal must match the ones in ymagine.h */
+        LETTERBOX,
+        CROP,
+        FIT
+    }
+
+    public enum ImageFormat {
+        /* ordinal must match the ones in format.h */
+        UNKNOWN,
+        JPEG,
+        WEBP,
+        PNG
+    }
+
+    /* Those definitions must match the ones in format.h */
+    private static final int CROP_NONE = 0;
+    private static final int CROP_ABSOLUTE = 1;
+    private static final int CROP_RELATIVE = 2;
+
+    @SuppressWarnings("unused")
+    public static class Options {
+        /**
+         * Maximum width of resulting image, -1 default to width of input image
+         */
+        private int maxWidth;
+        /**
+         * Maximum height of resulting image, -1 default to height of input image
+         */
+        private int maxHeight;
+        private Shader shader;
+        private int scaleType;
+        private int outputFormat;
+        private int quality;
+        private float sharpen;
+        private float rotate;
+        private int backgroundColor;
+        private int offsetCropMode;
+        private int sizeCropMode;
+        private int cropAbsoluteX;
+        private int cropAbsoluteY;
+        private int cropAbsoluteWidth;
+        private int cropAbsoluteHeight;
+        /**
+         * Relative x of crop region, range in [0, 1.0]
+         */
+        private float cropRelativeX;
+        /**
+         * Relative y of crop region, range in [0, 1.0]
+         */
+        private float cropRelativeY;
+        /**
+         * Relative width of crop region, range in [0, 1.0]
+         */
+        private float cropRelativeWidth;
+        /**
+         * Relative height of crop region, range in [0, 1.0]
+         */
+        private float cropRelativeHeight;
+
+        public Options() {
+            sharpen = 0.0f;
+            rotate = 0.0f;
+            maxWidth = -1;
+            maxHeight = -1;
+            quality = -1;
+            backgroundColor = Color.argb(0, 0, 0, 0);
+            scaleType = ScaleType.LETTERBOX.ordinal();
+            outputFormat = ImageFormat.JPEG.ordinal();
+            shader = null;
+            offsetCropMode = CROP_NONE;
+            sizeCropMode = CROP_NONE;
+        }
+
+        public void setOutputFormat(ImageFormat format) {
+            outputFormat = format.ordinal();
+        }
+
+        public void setSharpen(float sharpen) {
+            this.sharpen = sharpen;
+        }
+
+        public void setRotate(float rotate) {
+            this.rotate = rotate;
+        }
+
+        /**
+         * Set background color
+         *
+         * @param color ARGB color represented int form @see colorARGB
+         */
+        public void setBackgroundColor(int color) {
+            this.backgroundColor = color;
+        }
+
+        public void setCropOffset(int x, int y) {
+            offsetCropMode = CROP_ABSOLUTE;
+            cropAbsoluteX = x;
+            cropAbsoluteY = y;
+        }
+
+        public void setCropOffsetRelative(float relativeX, float relativeY) {
+            offsetCropMode = CROP_RELATIVE;
+            cropRelativeX = relativeX;
+            cropRelativeY = relativeY;
+        }
+
+        public void setCropSize(int width, int height) {
+            sizeCropMode = CROP_ABSOLUTE;
+            cropAbsoluteWidth = width;
+            cropAbsoluteHeight = height;
+        }
+
+        public void setCropSizeRelative(float relativeWidth, float relativeHeight) {
+            sizeCropMode = CROP_RELATIVE;
+            cropRelativeWidth = relativeWidth;
+            cropRelativeHeight = relativeHeight;
+        }
+
+        public void setCrop(int x, int y, int width, int height) {
+            setCropOffset(x, y);
+            setCropSize(width, height);
+        }
+
+        public void setCropRelative(float x, float y, float width, float height) {
+            setCropOffsetRelative(x, y);
+            setCropSizeRelative(width, height);
+        }
+
+        public void setScaleType(ScaleType type) {
+            scaleType = type.ordinal();
+        }
+
+        public void setShader(Shader shader) {
+            this.shader = shader;
+        }
+
+        public void setMaxSize(int maxWidth, int maxHeight) {
+            this.maxWidth = maxWidth;
+            this.maxHeight = maxHeight;
+        }
+
+        public void setQuality(int quality) {
+            this.quality = quality;
+        }
+    }
+
     // Global setting for enabling or disabling JNI interface. Set
-    // to -1 for automatic initialization, 0 for forcing off, 1 for
-    // forcing on
-    private static int sHasNative = -1;
+    // to NativeStatus.UNINITIALIZED for automatic initialization, or
+    // NativeStatus.DISABLED for forcing off.
+    private static NativeStatus sHasNative = NativeStatus.UNINITIALIZED;
 
     // Settable parameter to allow caller to turn native API off
     private static boolean sEnabled = true;
 
     // Directory for system libraries
     private static final String SYSTEM_LIB_DIR = "/system/vendor/lib";
-
-    // Those definitions must match the ones in bitmap.h
-    private static final int SCALE_LETTERBOX = 0;
-    private static final int SCALE_CROP = 1;
-    private static final int SCALE_FIT = 2;
 
     private static final int JPEG_DEFAULT_QUALITY = 80;
 
@@ -42,9 +193,8 @@ public class Ymagine {
     private native static int native_RGBtoHSV(int huv);
     private native static int native_HSVtoRGB(int rgb);
 
-    private native static int native_transcodeStream(InputStream is, OutputStream os,
-            int maxWidth, int maxHeight,
-            int scalemode, int quality, Shader shader);
+    private native static int native_transcodeStream(InputStream is, OutputStream os, Options options);
+
     /**
      * Attempt to load a native library
      *
@@ -78,28 +228,18 @@ public class Ymagine {
         }
     }
 
-    static public int Init() {
-        if (sHasNative < 0) {
-            sHasNative = 0;
+    static public synchronized boolean init() {
+        if (sHasNative == NativeStatus.UNINITIALIZED) {
             try {
                 loadLibrary("yahoo_ymagine");
-                sHasNative = 1;
+                sHasNative = NativeStatus.ENABLED;
             } catch (UnsatisfiedLinkError e) {
-                // Log.e(LOG_TAG, "Native code library failed to load" + e);
+                System.out.println("Native code library failed to load" + e);
+                sHasNative = NativeStatus.DISABLED;
             }
         }
-        
-        return sHasNative;
-    }
 
-
-    /**
-     * Test if the native image processing library was loaded successfully
-     *
-     * @return true on success
-     */
-    static public boolean hasNative() {
-        if (sHasNative <= 0) {
+        if (sHasNative != NativeStatus.ENABLED) {
             return false;
         }
         if (!sEnabled) {
@@ -109,11 +249,25 @@ public class Ymagine {
         return true;
     }
 
+    static public synchronized boolean init(boolean force) {
+        if (force && sHasNative == NativeStatus.UNINITIALIZED) {
+            sHasNative = NativeStatus.ENABLED;
+        }
+
+        return init();
+    }
+
+    static public synchronized void setNativeLibraries(String[] nativeLibraries) {
+        sNativeLibraries = nativeLibraries;
+    }
+
     /**
-     * Static initialization of the native interface
+     * Test if the native image processing library was loaded successfully
+     *
+     * @return true on success
      */
-    static {
-        Init();
+    static public boolean hasNative() {
+        return init();
     }
 
     /**
@@ -122,7 +276,10 @@ public class Ymagine {
      * @return version
      */
     public static int getVersion() {
-        return native_version();
+        if (hasNative()) {
+            return native_version();
+        }
+        return 0;
     }
 
     /**
@@ -131,7 +288,10 @@ public class Ymagine {
      * @return Color in AAHHSSVV format
      */
     public static int RGBtoHSV(int rgb) {
-        return native_RGBtoHSV(rgb);
+        if (hasNative()) {
+            return native_RGBtoHSV(rgb);
+        }
+        return 0;
     }
 
     /**
@@ -140,7 +300,10 @@ public class Ymagine {
      * @return Color in AARRGGBB format
      */
     public static int HSVtoRGB(int hsv) {
-        return native_HSVtoRGB(hsv);
+        if (hasNative()) {
+            return native_HSVtoRGB(hsv);
+        }
+        return 0;
     }
 
     /**
@@ -153,7 +316,12 @@ public class Ymagine {
     }
 
     public static int[] quantize(String filename, int ncolors, int maxWidth, int maxHeight) {
-        final int colors[] = native_quantize(filename, ncolors, maxWidth, maxHeight);
+        final int colors[];
+        if (hasNative()) {
+            colors = native_quantize(filename, ncolors, maxWidth, maxHeight);
+        } else {
+            colors = null;
+        }
 
         return colors;
     }
@@ -190,16 +358,15 @@ public class Ymagine {
     }
 
     public static int transcode(InputStream is, OutputStream os, int maxWidth, int maxHeight) {
-        return transcode(is, os, maxWidth, maxHeight, null);
+        Options options = new Options();
+        options.setMaxSize(maxWidth, maxHeight);
+        return transcode(is, os, options);
     }
 
-    /**
-     * transcode and apply shader during transcoding
-     *
-     * @param shader @see Shader
-     * @return greater or equal to 0 if success
-     */
-    public static int transcode(InputStream is, OutputStream os, int maxWidth, int maxHeight, Shader shader) {
-        return native_transcodeStream(is, os, maxWidth, maxHeight, SCALE_LETTERBOX, 99, shader);
+    public static int transcode(InputStream is, OutputStream os, Options options) {
+        if (hasNative()) {
+            return native_transcodeStream(is, os, options);
+        }
+        return -1;
     }
 }

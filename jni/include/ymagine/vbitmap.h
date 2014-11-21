@@ -41,9 +41,10 @@ extern "C" {
 #define VBITMAP_STATIC    3
 #define VBITMAP_GLTEXTURE 4
 
-#define VBITMAP_COLOR_RGBA       0
-#define VBITMAP_COLOR_RGB        1
-#define VBITMAP_COLOR_GRAYSCALE  2
+#define VBITMAP_COLOR_RGBA          0
+#define VBITMAP_COLOR_RGB           1
+#define VBITMAP_COLOR_GRAYSCALE     2
+#define VBITMAP_COLOR_YUV           3
 
 YOSAL_OBJECT_EXPORT(Vbitmap)
 typedef struct VbitmapXmpStruct VbitmapXmp;
@@ -370,6 +371,14 @@ VbitmapSetXMP(Vbitmap *vbitmap, VbitmapXmp *xmp);
  */
 VbitmapXmp*
 VbitmapGetXMP(Vbitmap *vbitmap);
+
+/**
+ * @brief Compute peak signal-to-noise ratio for two vbitmap
+ *
+ * @param if bigger or equal to 0, PSNR value. Otherwise computation failed
+ */
+double
+VbitmapComputePSNR(Vbitmap *vbitmap, Vbitmap *reference);
 
 /**
  * @}

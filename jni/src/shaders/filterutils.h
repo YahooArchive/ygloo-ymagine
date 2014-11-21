@@ -13,20 +13,14 @@
 #ifndef _YMAGINE_FILTERS_SHADERDETAIL_FILTERUTILS_H
 #define _YMAGINE_FILTERS_SHADERDETAIL_FILTERUTILS_H 1
 
-#define YFIXED_SHIFT 10
-#define YFIXED_ZERO 0
-#define YFIXED_ONE (1<<YFIXED_SHIFT)
-#define Y_MUL(x,y) (((x)*(y))>>YFIXED_SHIFT)
-#define Y_DIV(x,y) (((x)*YFIXED_ONE)/(y))
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 uint8_t*
 createEffectMap(const unsigned char *preset,
                 int contrast, int brightness,
                 int exposure, int temperature);
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #ifdef __cplusplus
 };

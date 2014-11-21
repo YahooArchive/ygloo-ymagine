@@ -73,13 +73,17 @@ extern "C" {
 
 #include "ymagine/vbitmap.h"
 #include "ymagine/iosapi.h"
-#include "ymagine/blur.h"
+#include "ymagine/filter.h"
 #include "ymagine/colorize.h"
 #include "ymagine/compose.h"
 #include "ymagine/color.h"
 #include "ymagine/pixelshader.h"
+#include "ymagine/transformer.h"
+#include "ymagine/draw.h"
 #include "ymagine/format.h"
+#include "ymagine/vformat.h"
 #include "ymagine/seam.h"
+#include "ymagine/simple.h"
 
 /**
  * @}

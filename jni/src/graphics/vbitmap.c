@@ -18,6 +18,7 @@
 #include <pthread.h>
 #include <errno.h>
 #include <string.h>
+#include <math.h>
 
 #undef MAX
 #define MAX(x,y) ((x) > (y) ? (x) : (y))
@@ -25,21 +26,13 @@
 #define MIN(x,y) ((x) < (y) ? (x) : (y))
 
 #define VBITMAP_ENABLE_GLOBAL_REF 0
-
-struct VrectStruct {
-    int x;
-    int y;
-    int width;
-    int height;
-};
-
-typedef struct VrectStruct Vrect;
+#define VBITMAP_MAX_PSNR 100
+#define LOG10 ((double) 2.302585092994046)
 
 YOSAL_OBJECT_DECLARE(Vbitmap)
 YOSAL_OBJECT_BEGIN
 int bitmaptype;
 int locked;
-
 int width;
 int height;
 int pitch;
@@ -309,6 +302,7 @@ VbitmapRelease(Vbitmap *vbitmap)
     return YMAGINE_OK;
   }
   if (vbitmap->locked) {
+    ALOGE("vbitmap locked, release failed");
     return YMAGINE_ERROR;
   }
 
@@ -598,36 +592,11 @@ colorBpp(int colormode)
     return 3;
   case VBITMAP_COLOR_GRAYSCALE:
     return 1;
+  case VBITMAP_COLOR_YUV:
+    return 3;
   default:
     return 0;
   }
-}
-
-static int
-VrectComputeIntersection(const Vrect *rect1, const Vrect *rect2, Vrect *output)
-{
-    if (output == NULL) {
-        return YMAGINE_OK;
-    } else if (rect1 == NULL && rect2 == NULL) {
-        return YMAGINE_ERROR;
-    } else if (rect1 == NULL) {
-        output->x = rect2->x;
-        output->y = rect2->y;
-        output->width = rect2->width;
-        output->height = rect2->height;
-    } else if (rect2 == NULL) {
-        output->x = rect1->x;
-        output->y = rect1->y;
-        output->width = rect1->width;
-        output->height = rect1->height;
-    } else {
-        //Nothing is NULL
-        output->x = MIN(MIN(MAX(rect1->x, rect2->x), rect1->x + rect1->width), rect2->x + rect2->width);
-        output->y = MIN(MIN(MAX(rect1->y, rect2->y), rect1->y + rect1->height), rect2->y + rect2->height);
-        output->width = MAX(MIN(rect1->x + rect1->width, rect2->x + rect2->width), output->x) - output->x;
-        output->height = MAX(MIN(rect1->y + rect1->height, rect2->y + rect2->height), output->y) - output->y;
-    }
-    return YMAGINE_OK;
 }
 
 static int
@@ -769,5 +738,103 @@ VbitmapGetXMP(Vbitmap *vbitmap)
   bitmapxmp = &(vbitmap->xmp);
 
   return bitmapxmp;
+}
+
+YINLINE YOPTIMIZE_SPEED static double
+calculateError(int width, int height,
+               unsigned char* buffer1, unsigned char* buffer2,
+               int bpp1, int bpp2,
+               int pitch1, int pitch2,
+               int bpp) {
+  int x;
+  int y;
+  int k;
+  double error = 0.0;
+
+  if (width <= 0 || height <= 0) {
+    return error;
+  }
+
+  for (y = 0; y < height; y++) {
+    unsigned char* v1y = buffer1 + y * pitch1;
+    unsigned char* v2y = buffer2 + y * pitch2;
+    for (x = 0; x < width; x++) {
+      for (k = 0; k < bpp; k++) {
+        int d = ((int) v1y[k]) - ((int) v2y[k]);
+        error += d * d;
+      }
+      v1y += bpp1;
+      v2y += bpp2;
+    }
+  }
+
+  error = error / (width * height * bpp);
+  return error;
+}
+
+double
+VbitmapComputePSNR(Vbitmap *vbitmap, Vbitmap *reference)
+{
+  int width;
+  int height;
+  unsigned char* v1buffer;
+  unsigned char* v2buffer;
+  int bpp1;
+  int bpp2;
+  int v1pitch;
+  int v2pitch;
+  double error = 0.0;
+  double psnr = -1.0;
+
+  if (vbitmap == NULL || reference == NULL ||
+      VbitmapWidth(vbitmap) != VbitmapWidth(reference) ||
+      VbitmapHeight(vbitmap) != VbitmapHeight(reference)) {
+    return psnr;
+  }
+
+  if (vbitmap == reference) {
+    return VBITMAP_MAX_PSNR;
+  }
+
+  bpp1 = VbitmapBpp(vbitmap);
+  bpp2 = VbitmapBpp(reference);
+
+  if (VbitmapLock(vbitmap) == YMAGINE_OK) {
+    if (VbitmapLock(reference) == YMAGINE_OK) {
+      v1buffer = VbitmapBuffer(vbitmap);
+      v2buffer = VbitmapBuffer(reference);
+
+      if (v1buffer != NULL && v2buffer != NULL) {
+        width = VbitmapWidth(vbitmap);
+        height = VbitmapHeight(vbitmap);
+        v1pitch = VbitmapPitch(vbitmap);
+        v2pitch = VbitmapPitch(reference);
+
+        if (bpp1 == 1 && bpp2 == 1) {
+          error = calculateError(width, height, v1buffer, v2buffer, 1, 1, v1pitch, v2pitch, 1);
+        } else if (bpp1 == 3 && bpp2 == 3) {
+          error = calculateError(width, height, v1buffer, v2buffer, 3, 3, v1pitch, v2pitch, 3);
+        } else if (bpp1 == 4 && bpp2 == 4) {
+          error = calculateError(width, height, v1buffer, v2buffer, 4, 4, v1pitch, v2pitch, 4);
+        } else {
+          int bpp = bpp1 < bpp2 ? bpp1 : bpp2;
+          error = calculateError(width, height, v1buffer, v2buffer, bpp1, bpp2, v1pitch, v2pitch, bpp);
+        }
+      }
+      VbitmapUnlock(reference);
+    }
+    VbitmapUnlock(vbitmap);
+  }
+
+  if (error > 1.0e-10) {
+    psnr = (10.0 / LOG10) * log((255.0 * 255.0) / error);
+    if (psnr > VBITMAP_MAX_PSNR) {
+      psnr = VBITMAP_MAX_PSNR;
+    }
+  } else {
+    psnr = VBITMAP_MAX_PSNR;
+  }
+
+  return psnr;
 }
 

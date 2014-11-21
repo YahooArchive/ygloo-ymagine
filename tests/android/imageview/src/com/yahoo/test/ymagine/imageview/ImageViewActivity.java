@@ -9,7 +9,6 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
 import android.widget.CheckBox;
-import android.widget.ImageView;
 import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.TextView;
@@ -17,6 +16,7 @@ import android.widget.TextView;
 import com.yahoo.ymagine.Shader;
 import com.yahoo.ymagine.Vbitmap;
 import com.yahoo.mobile.client.android.ymagine.BitmapFactory;
+import com.yahoo.mobile.client.android.ymagine.widget.PhotoView;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -29,7 +29,7 @@ import java.io.OutputStream;
 
 public class ImageViewActivity extends Activity {
     Button button;
-    ImageView imageView;
+    PhotoView imageView;
     TextView messageView;
     TextView blurTextView;
     AssetManager assetMgr;
@@ -119,23 +119,23 @@ public class ImageViewActivity extends Activity {
         InputStream instream = null;
 
         if (reqWidth > 0 && reqHeight > 0 && outstream == null) {
-            inbitmap = Bitmap.createBitmap(reqWidth, reqHeight, Bitmap.Config.ARGB_8888);
+            // inbitmap = Bitmap.createBitmap(reqWidth, reqHeight, Bitmap.Config.ARGB_8888);
             // inbitmap.eraseColor(Color.TRANSPARENT);
         }
 
         BitmapFactory.Options opts = new BitmapFactory.Options();
 
         if (inbitmap != null) {
+            opts.inBitmap = inbitmap;
             opts.inMaxWidth = inbitmap.getWidth();
             opts.inMaxHeight = inbitmap.getHeight();
-            opts.inBitmap = inbitmap;
-        } else if (outstream != null) {
+        } else { // if (outstream != null) {
             opts.inMaxWidth = reqWidth;
             opts.inMaxHeight = reqHeight;
         }
         opts.inCrop = false;
-        opts.inKeepRatio = true;
         opts.inNative = usenative;
+        opts.inKeepRatio = true;
         opts.inShader = mShader;
         if (justBounds) {
             opts.inJustDecodeBounds = true;
@@ -145,8 +145,6 @@ public class ImageViewActivity extends Activity {
 
         // Use one of sample images from assets
         String filename = "sample1.jpg";
-        filename = "sample1.webp";
-        filename = "1_webp_ll.webp";
 
         colors = null;
         for (int i = 0; i < niter; i++) {
@@ -231,7 +229,7 @@ public class ImageViewActivity extends Activity {
     public void addListenerOnButton() {
         messageView = (TextView) findViewById(R.id.messageView);
         blurTextView = (TextView) findViewById(R.id.blurTextView);
-        imageView = (ImageView) findViewById(R.id.imageView1);
+        imageView = (PhotoView) findViewById(R.id.imageView1);
         seekBar = (SeekBar) findViewById(R.id.radiusSeek);
 
         seekBar.setMax(99);

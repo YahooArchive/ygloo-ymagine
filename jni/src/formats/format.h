@@ -23,13 +23,46 @@
 extern "C" {
 #endif
 
+#define CROP_MODE_NONE 0
+#define CROP_MODE_ABSOLUTE 1
+#define CROP_MODE_RELATIVE 2
+
 struct YmagineFormatOptionsStruct {
   int maxwidth;
   int maxheight;
   int scalemode;
+  int resizable;
   int quality;
+  int accuracy;
+  int subsampling;
+  float sharpen;
+  float rotate;
+  float blur;
+  int format;
+  int metamode;
+  uint32_t backgroundcolor;
+
+  int cropoffsetmode;
+  int cropx;
+  int cropy;
+  float cropxp;
+  float cropyp;
+
+  int cropsizemode;
+  int cropwidth;
+  int cropheight;
+  float cropwidthp;
+  float cropheightp;
+
   PixelShader* pixelshader;
+
+  void *metadata;
+  YmagineFormatOptions_ProgressCB progresscb;
 };
+
+/* Helper to display scale mode as string */
+const char*
+Ymagine_scaleModeStr(int scalemode);
 
 #ifdef __cplusplus
 };

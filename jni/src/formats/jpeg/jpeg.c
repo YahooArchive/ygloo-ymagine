@@ -17,6 +17,8 @@
 #include <pthread.h>
 #include <setjmp.h>
 
+// #define YMAGINE_DEBUG_JPEG 1
+
 #define LOG_TAG "ymagine::bitmap"
 #include "ymagine_priv.h"
 
@@ -54,9 +56,9 @@ static void
 noop_append_jpeg_message (j_common_ptr cinfo)
 {
 #if YMAGINE_DEBUG_JPEG
-  char buffer[JMSG_LENGTH_MAX];
-  (*cinfo->err->format_message) (cinfo, buffer);
-  ALOGE("jpeg error: %s\n", buffer);
+  char buffer[JMSG_LENGTH_MAX] = {0};
+  (*cinfo->err->format_message)(cinfo, buffer);
+  ALOGE("jpeg error: %s", buffer);
 #endif
 }
 
@@ -116,23 +118,64 @@ noop_jpeg_std_error (struct jpeg_error_mgr * err)
 }
 
 static int
+JpegPixelMode(J_COLOR_SPACE colorspace)
+{
+  int mode = VBITMAP_COLOR_RGBA;
+
+  switch (colorspace) {
+    case JCS_GRAYSCALE:
+      mode = VBITMAP_COLOR_GRAYSCALE;
+      break;
+    case JCS_RGB:
+      mode = VBITMAP_COLOR_RGB;
+      break;
+    case JCS_YCbCr:
+      mode = VBITMAP_COLOR_YUV;
+      break;
+    case JCS_YCCK:
+    case JCS_CMYK:
+      mode = VBITMAP_COLOR_RGBA;
+      break;
+#ifdef HAVE_JPEG_EXTCOLORSPACE
+    case JCS_RGBA_8888:
+#endif
+    case JCS_EXT_RGBX:
+    case JCS_EXT_RGBA:
+      mode = VBITMAP_COLOR_RGBA;
+      break;
+    default:
+      /* Unsupported color mode */
+      break;
+  }
+
+  return mode;
+}
+
+static int
 JpegPixelSize(J_COLOR_SPACE colorspace)
 {
   int bpp;
   
   switch (colorspace) {
+    case JCS_GRAYSCALE:
+      bpp = 1;
+      break;
+    case JCS_RGB:
+      bpp = 3;
+      break;
+    case JCS_YCbCr:
+      bpp = 3;
+      break;
+    case JCS_YCCK:
+    case JCS_CMYK:
+      bpp = 4;
+      break;
 #ifdef HAVE_JPEG_EXTCOLORSPACE
     case JCS_RGBA_8888:
 #endif
     case JCS_EXT_RGBX:
     case JCS_EXT_RGBA:
       bpp = 4;
-      break;
-    case JCS_RGB:
-      bpp = 3;
-      break;
-    case JCS_GRAYSCALE:
-      bpp = 1;
       break;
     default:
       /* Unsupported color mode */
@@ -146,6 +189,10 @@ JpegPixelSize(J_COLOR_SPACE colorspace)
 static void
 set_colormode(struct jpeg_compress_struct *cinfo, int colormode) {
   switch (colormode) {
+    case VBITMAP_COLOR_YUV:
+      cinfo->in_color_space = JCS_YCbCr;
+      cinfo->input_components = 3;
+      break;
     case VBITMAP_COLOR_GRAYSCALE:
       cinfo->in_color_space = JCS_GRAYSCALE;
       cinfo->input_components = 1;
@@ -167,114 +214,180 @@ set_colormode(struct jpeg_compress_struct *cinfo, int colormode) {
 }
 
 static int
+JpegWriter(Transformer *transformer, void *writedata, void *line)
+{
+  JSAMPROW row_pointer[1];
+  struct jpeg_compress_struct *cinfoout = (struct jpeg_compress_struct *) writedata;
+  
+  if (writedata != NULL) {
+    row_pointer[0] = line;
+    jpeg_write_scanlines(cinfoout, row_pointer, 1);
+  }
+
+  return YMAGINE_OK;
+}
+
+static int
+GetScaleNum(int owidth, int oheight,
+            int iwidth, int iheight, int scalemode)
+{
+  int i;
+
+  if (iwidth <= 0 || iheight <= 0) {
+    return 0;
+  }
+
+  if (owidth <= 0) {
+    owidth = iwidth;
+  }
+  if (oheight <= 0) {
+    oheight = iheight;
+  }
+
+  if (scalemode == YMAGINE_SCALE_CROP || scalemode == YMAGINE_SCALE_FIT) {
+    /* Use higher reduction ratio while keeping generated image larger than output
+     one in both direction */
+    for (i = 1; i <= 8; i++) {
+      if ( ( (iwidth * i) / 8) >= owidth &&
+           ( (iheight * i) / 8) >= oheight ) {
+        break;
+      }
+    }
+  } else {
+    /* For letterbox, use higher reduction ratio while keeping generated image larger
+     than output one in at least one direction */
+    for (i = 1; i <= 8; i++) {
+      if ( ( (iwidth * i) / 8) >= owidth ||
+           ( (iheight * i) / 8) >= oheight ) {
+        break;
+      }
+    }
+  }
+
+  if (i == 8) {
+    /* when i is 8, means no scale */
+    i = 0;
+  }
+
+  return i;
+}
+
+static int
+setCompressorOptions(struct jpeg_compress_struct *cinfo,
+                     YmagineFormatOptions *options)
+{
+  int subsampling = -1;
+
+  if (options != NULL) {
+    subsampling = options->subsampling;
+  }
+
+  /* Set subsampling options */
+  switch (subsampling) {
+  case 0:
+    /* 4:4:4 (no subsampling) */
+    cinfo->comp_info[0].h_samp_factor = 1;
+    cinfo->comp_info[0].v_samp_factor = 1;
+    cinfo->comp_info[1].h_samp_factor = 1;
+    cinfo->comp_info[1].v_samp_factor = 1;
+    cinfo->comp_info[2].h_samp_factor = 1;
+    cinfo->comp_info[2].v_samp_factor = 1;
+    break;
+  case 1:
+    /* 2x2 chrominance subsampling (4:2:0) */
+    cinfo->comp_info[0].h_samp_factor = 2;
+    cinfo->comp_info[0].v_samp_factor = 2;
+    cinfo->comp_info[1].h_samp_factor = 1;
+    cinfo->comp_info[1].v_samp_factor = 1;
+    cinfo->comp_info[2].h_samp_factor = 1;
+    cinfo->comp_info[2].v_samp_factor = 1;
+    break;
+  default:
+    /* Use the lib's default (should be 4:2:0) */
+    break;
+  }
+
+  return YMAGINE_OK;
+}
+
+static YOPTIMIZE_SPEED int
 decompress_jpeg(struct jpeg_decompress_struct *cinfo,
-                struct jpeg_compress_struct *cinfoout,
-                unsigned char *opixels, int owidth, int oheight, int opitch,
-                int ocolormode, int scalemode, PixelShader *shader)
+                struct jpeg_compress_struct *cinfoout, JCOPY_OPTION copyoption,
+                Vbitmap *vbitmap, YmagineFormatOptions *options)
 {
   int scanlines;
   int nlines;
   int totallines;
-  int i, j, k;
-  int srcbpp, destbpp;
+  int j;
+  int scalenum = -1;
   JSAMPARRAY buffer;
-  JSAMPROW row_pointer[1];
-  unsigned int destline;
-  unsigned int srcline;
-  unsigned int prevline;
-  unsigned char* destptr;
-  unsigned char* srcptr;
-  unsigned char* prevptr;
-  unsigned char* nextptr;
-  unsigned char* tmpptr = NULL;
-  unsigned char* alignedptr = NULL;
-  Rect srcrect;
-  Rect destrect;
-  
-  if (cinfoout != NULL) {
-    opixels = NULL;
-    owidth = cinfoout->image_width;
-    oheight = cinfoout->image_height;
-    opitch = 0;
-    ocolormode = VBITMAP_COLOR_RGB;
-  }
-  
-  if (owidth <= 0 || oheight <= 0) {
-    opixels = NULL;
-    owidth = 0;
-    oheight = 0;
-    opitch = 0;
-    ocolormode = VBITMAP_COLOR_RGB;
-  }
-  
-  if (owidth > 0 && oheight > 0) {
-    if (scalemode == YMAGINE_SCALE_CROP || scalemode == YMAGINE_SCALE_FIT) {
-      /* Use higher reduction ratio while keeping generated image larger than output
-       one in both direction */
-      for (i = 1; i <= 8; i++) {
-        if ( ( (cinfo->image_width * i) / 8) >= owidth &&
-            ( (cinfo->image_height * i) / 8) >= oheight ) {
-          break;
-        }
-      }
-    } else {
-      /* For letterbox, use higher reduction ratio while keeping generated image larger
-       than output one in at least one direction */
-      for (i = 1; i <= 8; i++) {
-        if ( ( (cinfo->image_width * i) / 8) >= owidth ||
-            ( (cinfo->image_height * i) / 8) >= oheight ) {
-          break;
-        }
-      }
-    }
-    
-    if (i > 0 && i < 8) {
-      cinfo->scale_num=i;
-      cinfo->scale_denom=8;
-    }
-  }
-  
-  /* jpeg_calc_output_dimensions(cinfo); */
-  
-  if (!jpeg_start_decompress(cinfo)) {
+  Vrect srcrect;
+  Vrect destrect;
+  size_t row_stride;
+  Transformer *transformer;
+  PixelShader *shader = NULL;
+  int iwidth, iheight;
+  float sharpen = 0.0f;
+
+  if (vbitmap == NULL && cinfoout == NULL) {
+    /* No output specified */
     return 0;
   }
-  
+  if (options == NULL) {
+    /* Options argument is mandatory */
+    return 0;
+  }
+
+  iwidth = cinfo->image_width;
+  iheight = cinfo->image_height;
+
+  if (YmaginePrepareTransform(vbitmap, options,
+                              iwidth, iheight,
+                              &srcrect, &destrect) != YMAGINE_OK) {
+    return 0;
+  }
+
+  shader = options->pixelshader;
+  sharpen = options->sharpen;
+
+  /* Define if image can be pre-subsampled by a ratio n/8 (n=1..7) */
+  scalenum = GetScaleNum(destrect.width, destrect.height,
+                         srcrect.width, srcrect.height,
+                         options->scalemode);
+  if (scalenum > 0 && scalenum < 8) {
+    cinfo->scale_num = scalenum;
+    cinfo->scale_denom = 8;
+  }
+
+  /* Compute actual output dimension for image returned by decoder */
+  jpeg_calc_output_dimensions(cinfo);
+
 #if YMAGINE_DEBUG_JPEG
-  ALOGD("size: %dx%d req: %dx%d %s -> scale: %d/%d output: %dx%d components: %d\n",
-        cinfo->image_width, cinfo->image_height,
-        owidth, oheight,
-        (scalemode == YMAGINE_SCALE_CROP) ? "crop" :
-        (scalemode == YMAGINE_SCALE_FIT ? "fit" : "letterbox"),
+  ALOGD("src=%dx%d@%d,%d dst=%dx%d@%d,%d",
+        srcrect.width, srcrect.height, srcrect.x, srcrect.y,
+        destrect.width, destrect.height, destrect.x, destrect.y);
+
+  ALOGD("size: %dx%d req: %dx%d %s -> scale: %d/%d output: %dx%d components: %d",
+        iwidth, iheight,
+        destrect.width, destrect.height,
+        Ymagine_scaleModeStr(options->scalemode),
         cinfo->scale_num, cinfo->scale_denom,
         cinfo->output_width, cinfo->output_height,
         cinfo->output_components);
 #endif
-  
-  if (owidth > 0 && oheight > 0) {
-    computeTransform(cinfo->output_width, cinfo->output_height,
-                     owidth, oheight, scalemode,
-                     &srcrect, &destrect);
-    if (opixels != NULL) {
-      imageFillOut(opixels, owidth, oheight, opitch, ocolormode, &destrect);
-    }
-  } else {
-    computeTransform(0, 0, 0, 0, scalemode, &srcrect, &destrect);
+
+  /* Scale the crop region to reflect scaling ratio applied by JPEG decoder */
+  if (cinfo->image_width != cinfo->output_width) {
+    srcrect.x = (srcrect.x * cinfo->output_width) / cinfo->image_width;
+    srcrect.width = (srcrect.width * cinfo->output_width) / cinfo->image_width;
   }
-  
-  srcbpp = JpegPixelSize(cinfo->out_color_space);
-  if (opixels != NULL) {
-    destbpp = colorBpp(ocolormode);
-  } else if (cinfoout != NULL) {
-    destbpp = JpegPixelSize(cinfoout->in_color_space);
-  } else {
-    /* Inject RGB data into jpeg encoder */
-    destbpp = 3;
+  if (cinfo->image_height != cinfo->output_height) {
+    srcrect.y = (srcrect.y * cinfo->output_height) / cinfo->image_height;
+    srcrect.height = (srcrect.height * cinfo->output_height) / cinfo->image_height;
   }
-  
-  size_t row_stride = cinfo->output_width * cinfo->output_components;
-  
+
   /* Number of scan lines to handle per pass. Making it larger actually doesn't help much */
+  row_stride = cinfo->output_width * cinfo->output_components;
   scanlines = (32 * 1024) / row_stride;
   if (scanlines < 1) {
     scanlines = 1;
@@ -282,151 +395,127 @@ decompress_jpeg(struct jpeg_decompress_struct *cinfo,
   if (scanlines > cinfo->output_height) {
     scanlines = cinfo->output_height;
   }
-  
+
 #if YMAGINE_DEBUG_JPEG
-  ALOGD("BITMAP @(%d,%d) %dx%d bpp=%d -> @(%dx%d) %dx%d bpp=%d (%d lines)\n",
-        srcrect.x, srcrect.y, srcrect.width, srcrect.height, srcbpp,
-        destrect.x, destrect.y, destrect.width, destrect.height, destbpp,
+  ALOGD("BITMAP @(%d,%d) %dx%d bpp=%d -> @(%dx%d) %dx%d (%d lines)",
+        srcrect.x, srcrect.y, srcrect.width, srcrect.height, JpegPixelSize(cinfo->out_color_space),
+        destrect.x, destrect.y, destrect.width, destrect.height,
         scanlines);
 #endif
-  
-  if (opixels == NULL && cinfoout != NULL) {
-    /* Allocate a temporary buffer large enough to contain 2 full lines
-	   at the image resolution */
-    opitch = owidth * destbpp;
-    if (opitch % 8) {
-      opitch += 8 - (opitch % 8);
+
+  /* Resize encoder */
+  if (cinfoout != NULL) {
+    cinfoout->image_width = destrect.width;
+    cinfoout->image_height = destrect.height;
+    jpeg_start_compress(cinfoout, TRUE);
+    if (copyoption != JCOPYOPT_NONE) {
+      /* Copy to the output file any extra markers that we want to preserve */
+      jcopy_markers_execute(cinfo, cinfoout, copyoption);
     }
-    tmpptr = Ymem_malloc_aligned(8, opitch * 2, (void**) &alignedptr);
-    if (tmpptr == NULL) {
-      jpeg_abort_decompress(cinfo);
-      return 0;
+  }
+
+  /* Resize target bitmap */
+  if (vbitmap != NULL) {
+    if (options->resizable) {
+      destrect.x = 0;
+      destrect.y = 0;
+      if (VbitmapResize(vbitmap, destrect.width, destrect.height) != YMAGINE_OK) {
+        return 0;
+      }
     }
+    if (VbitmapType(vbitmap) == VBITMAP_NONE) {
+      /* Decode bounds only, return positive number (number of lines) on success */
+      return VbitmapHeight(vbitmap);
+    }
+  }
+
+  if (!jpeg_start_decompress(cinfo)) {
+    if (cinfoout != NULL) {
+      jpeg_abort_compress(cinfoout);
+    }
+    return 0;
   }
   
   buffer = (JSAMPARRAY) (*cinfo->mem->alloc_sarray)((j_common_ptr) cinfo, JPOOL_IMAGE,
                                                     row_stride, scanlines);
   if (buffer == NULL) {
-    jpeg_abort_decompress(cinfo);
-    if (tmpptr == NULL) {
-      Ymem_free(tmpptr);
+    if (cinfoout != NULL) {
+      jpeg_abort_compress(cinfoout);
     }
+    jpeg_abort_decompress(cinfo);
     return 0;
   }
   
   totallines = 0;
-  destline = -1;
-  destptr = NULL;
   
-  while (cinfo->output_scanline < cinfo->output_height) {
+  transformer = TransformerCreate();
+  if (transformer != NULL) {
+    TransformerSetScale(transformer,
+                        cinfo->output_width, cinfo->output_height,
+                        destrect.width, destrect.height);
+    TransformerSetRegion(transformer,
+                         srcrect.x, srcrect.y, srcrect.width, srcrect.height);
+
+    if (vbitmap != NULL) {
+      TransformerSetMode(transformer, JpegPixelMode(cinfo->out_color_space), VbitmapColormode(vbitmap));
+      TransformerSetBitmap(transformer, vbitmap, destrect.x, destrect.y);
+    } else {
+      TransformerSetMode(transformer, JpegPixelMode(cinfo->out_color_space),
+                         JpegPixelMode(cinfoout->in_color_space));
+      TransformerSetWriter(transformer, JpegWriter, cinfoout);
+    }
+    TransformerSetShader(transformer, shader);
+    TransformerSetSharpen(transformer, sharpen);
+  }
+
+  while (transformer != NULL && cinfo->output_scanline < cinfo->output_height) {
     nlines = jpeg_read_scanlines(cinfo, buffer, scanlines);
     if (nlines <= 0) {
       /* Decoding error */
+      ALOGD("decoding error (nlines=%d)", nlines);
       break;
     }
-    
-    if (opixels != NULL || cinfoout != NULL) {
-      for (j = 0; j < nlines; j++) {
-        prevline = destline;
-        prevptr = destptr;
-        
-        srcline = totallines + j;
-        if (srcline >= srcrect.y && srcline < srcrect.y + srcrect.height) {
-          destline = destrect.y + ((srcline - srcrect.y) * destrect.height) / srcrect.height;
-          
-          /* Fast vertical upscaling, by copying current scanline as often as necessary */
-          /* TODO: downscale / upscale using vertical bilinear filter */
-          if (prevptr != NULL && destline > prevline + 1) {
-            nextptr = prevptr;
-            for (k = prevline + 1; k < destline; k++) {
-              if (opixels != NULL) {
-                nextptr += opitch;
-                memcpy(nextptr, prevptr, destrect.width * destbpp);
-              } else {
-                row_pointer[0] = nextptr;
-                jpeg_write_scanlines(cinfoout, row_pointer, 1);
-              }
-            }
-          }
-          
-          srcptr = ((unsigned char*) buffer[j]) + srcrect.x * srcbpp;
-          if (opixels != NULL) {
-            destptr = opixels + opitch * destline;
-          } else {
-            destptr = alignedptr;
-            if (destptr == prevptr) {
-              destptr += opitch;
-            }
-          }
-          destptr += destrect.x * destbpp;
-          
-          /* Scale and convert to correct color space */
-          bltLine(destptr, destrect.width, destbpp,
-                  srcptr, srcrect.width, srcbpp);
 
-          /* Apply shader on the scaled line */
-          if (shader != NULL) {
-            Yshader_apply(shader,
-                          destptr, destrect.width, destbpp,
-                          destrect.width, destrect.height,
-                          0, destline);
-          }
-
-          if (opixels == NULL && cinfoout != NULL) {
-            if (prevline != destline) {
-              row_pointer[0] = destptr;
-              jpeg_write_scanlines(cinfoout, row_pointer, 1);
-            }
-          }
-          
-          if (srcline == srcrect.y + srcrect.height - 1) {
-            /* This is last line to be decoded. Pad if necessary. */
-            nextptr = destptr;
-            for (k = destline + 1; k < destrect.y + destrect.height; k++) {
-              if (opixels != NULL) {
-                nextptr += opitch;
-                memcpy(nextptr, destptr, destrect.width * destbpp);
-              } else {
-                row_pointer[0] = nextptr;
-                jpeg_write_scanlines(cinfoout, row_pointer, 1);
-              }
-            }
-          }
-        }
+    for (j = 0; j < nlines; j++) {
+      if (TransformerPush(transformer, (const char*) buffer[j]) != YMAGINE_OK) {
+        TransformerRelease(transformer);
+        transformer = NULL;
+        break;
       }
+      totallines++;
     }
-    
-    totallines += nlines;
   }
-  
-  if (tmpptr != NULL) {
-    Ymem_free(tmpptr);
+
+  /* Clean up */
+  if (transformer != NULL) {
+    TransformerRelease(transformer);
   }
-  
   if (cinfo->output_scanline > 0 && cinfo->output_scanline == cinfo->output_height) {
-    /* Do normal cleanup if we read the whole image */
+    /* Do normal cleanup if whole image has been read and decoded */
     jpeg_finish_decompress(cinfo);
+    if (cinfoout != NULL) {
+      jpeg_finish_compress(cinfoout);
+    }
   }
   else {
     /* else early abort */
     jpeg_abort_decompress(cinfo);
+    if (cinfoout != NULL) {
+      jpeg_abort_compress(cinfoout);
+    }
+    totallines = 0;
   }
   
   return totallines;
 }
 
 static int
-prepareDecompressor(struct jpeg_decompress_struct *cinfo, int quality)
+prepareDecompressor(struct jpeg_decompress_struct *cinfo, YmagineFormatOptions *options)
 {
+  int quality = YmagineFormatOptions_normalizeQuality(options);
+
   if (cinfo == NULL) {
-    return 1;
-  }
-  
-  if (quality < 0) {
-    quality = 85;
-  }
-  if (quality > 100) {
-    quality = 100;
+    return YMAGINE_ERROR;
   }
 
   if (1) {
@@ -465,6 +554,18 @@ prepareDecompressor(struct jpeg_decompress_struct *cinfo, int quality)
     }
     if (quality >= 97) {
       cinfo->enable_2pass_quant = TRUE;
+    }
+  }
+
+  /* Accuracy specified? If so, set the DCT method accordingly.
+     It's toggling between JDCT_ISLOW and JDCT_IFAST;
+     JDCT_FLOAT is apparently not a good option
+     see: http://svn.code.sf.net/p/libjpeg-turbo/code/trunk/libjpeg.txt */
+  if (options->accuracy >= 0) {
+    if (options->accuracy < 50) {
+      cinfo->dct_method = JDCT_IFAST;      
+    } else {
+      cinfo->dct_method = JDCT_ISLOW;
     }
   }
   
@@ -508,7 +609,7 @@ APP1_handler (j_decompress_ptr cinfo) {
   data = Ymem_malloc(length + 1);
   if (data == NULL) {
     return FALSE;
-  }  
+  }
   for (i = 0; i < length; i++) {
     data[i] = (unsigned char) jpeg_getc(cinfo);
   }
@@ -540,7 +641,7 @@ startDecompressor(struct jpeg_decompress_struct *cinfo, int colormode)
 {
   
   if (jpeg_read_header(cinfo, TRUE) != JPEG_HEADER_OK) {
-    return 1;
+    return YMAGINE_ERROR;
   }
   
   /*
@@ -554,6 +655,9 @@ startDecompressor(struct jpeg_decompress_struct *cinfo, int colormode)
    is otherwise JCS_RGB
    */
   switch (colormode) {
+    case VBITMAP_COLOR_YUV:
+      cinfo->out_color_space = JCS_YCbCr;
+      break;
     case VBITMAP_COLOR_GRAYSCALE:
       cinfo->out_color_space = JCS_GRAYSCALE;
       break;
@@ -576,88 +680,42 @@ startDecompressor(struct jpeg_decompress_struct *cinfo, int colormode)
 
 static int
 bitmap_decode(struct jpeg_decompress_struct *cinfo, Vbitmap *vbitmap,
-              int maxWidth, int maxHeight, int scalemode, int quality,
-              PixelShader* shader)
+              YmagineFormatOptions *options)
 {
-  unsigned char *pixels;
-  int inwidth, inheight;
-  int width, height;
-  int pitch, colormode;
   int nlines = -1;
-  int rc;
-  
+
   cinfo->client_data = (void*) vbitmap;
   
-  if (prepareDecompressor(cinfo, quality) != 0) {
+  if (prepareDecompressor(cinfo, options) != YMAGINE_OK) {
     return nlines;
   }
 
   /* Intercept APP1 markers for PhotoSphere parsing */
   jpeg_set_marker_processor(cinfo, JPEG_APP0 + 1, APP1_handler);
   
-  if (startDecompressor(cinfo, VbitmapColormode(vbitmap)) != 0) {
+  if (startDecompressor(cinfo, VbitmapColormode(vbitmap)) != YMAGINE_OK) {
     return nlines;
   }
   
-  inwidth = VbitmapWidth(vbitmap);
-  inheight = VbitmapHeight(vbitmap);
-  
-  if (inwidth > 0 && inheight > 0) {
-    width = inwidth;
-    height = inheight;
-    pitch = VbitmapPitch(vbitmap);
-    colormode = VbitmapColormode(vbitmap);
-  } else {
-    int reqwidth, reqheight;
-    
-    computeBounds(cinfo->image_width, cinfo->image_height,
-                  maxWidth, maxHeight, scalemode,
-                  &reqwidth, &reqheight);
-    if (VbitmapResize(vbitmap, reqwidth, reqheight) != YMAGINE_OK) {
-      return nlines;
-    }
-    
-    width = VbitmapWidth(vbitmap);
-    height = VbitmapHeight(vbitmap);
-    pitch = VbitmapPitch(vbitmap);
-    colormode = VbitmapColormode(vbitmap);
-  }
+  YmagineFormatOptions_invokeCallback(options, YMAGINE_IMAGEFORMAT_JPEG,
+                                      cinfo->image_width, cinfo->image_height);
 
 #if YMAGINE_DEBUG_JPEG
-  ALOGD("bitmap_decode: in=%dx%d bm=%dx%d max=%dx%d out=%dx%d",
+  ALOGD("bitmap_decode: in=%dx%d bm=%dx%d max=%dx%d",
         cinfo->image_width, cinfo->image_height,
-        inwidth, inheight,
-        maxWidth, maxHeight,
-        width, height);
+        VbitmapWidth(vbitmap), VbitmapHeight(vbitmap),
+        options->maxwidth, options->maxheight);
 #endif
   
-  if (VbitmapType(vbitmap) == VBITMAP_NONE) {
-    nlines = VbitmapHeight(vbitmap);
-
-    return nlines;
-  }
-
-  rc = VbitmapLock(vbitmap);
-  if (rc != YMAGINE_OK) {
-    ALOGE("AndroidBitmap_lockPixels() failed (code %d)", rc);
-  } else {
-    pixels = VbitmapBuffer(vbitmap);
-    if (pixels != NULL) {
-      nlines = decompress_jpeg(cinfo, NULL, pixels,
-                               width, height, pitch, colormode,
-                               scalemode, shader);
-    }
-    VbitmapUnlock(vbitmap);
-  }
+  nlines = decompress_jpeg(cinfo, NULL, JCOPYOPT_NONE,
+                           vbitmap, options);
   
   return nlines;
 }
 
 int
 decodeJPEG(Ychannel *channel, Vbitmap *vbitmap,
-           int maxWidth, int maxHeight,
-           int scaleMode, int quality,
-           PixelShader* pixelShader)
+           YmagineFormatOptions *options)
 {
   struct jpeg_decompress_struct cinfo;
   struct noop_error_mgr jerr;
@@ -681,8 +739,7 @@ decodeJPEG(Ychannel *channel, Vbitmap *vbitmap,
     jpeg_create_decompress(&cinfo);
     if (ymaginejpeg_input(&cinfo, channel) >= 0) {
       nlines = bitmap_decode(&cinfo, vbitmap,
-                             maxWidth, maxHeight, scaleMode, quality,
-                             pixelShader);
+                             options);
     }
   }
   jpeg_destroy_decompress(&cinfo);
@@ -692,8 +749,7 @@ decodeJPEG(Ychannel *channel, Vbitmap *vbitmap,
 
 int
 transcodeJPEG(Ychannel *channelin, Ychannel *channelout,
-              int maxWidth, int maxHeight,
-              int scalemode, int quality, PixelShader* shader)
+              YmagineFormatOptions *options)
 {
   struct jpeg_decompress_struct cinfo;
   struct noop_error_mgr jerr;
@@ -702,17 +758,10 @@ transcodeJPEG(Ychannel *channelin, Ychannel *channelout,
   struct noop_error_mgr jerr2;
   int rc = YMAGINE_ERROR;
   int nlines = 0;
+  int quality = YmagineFormatOptions_normalizeQuality(options);
   
   if (!YchannelReadable(channelin) || !YchannelWritable(channelout)) {
     return rc;
-  }
-  
-  /* Quality, 0=worst, 100=best, default to 80 */
-  if (quality <= 0) {
-    quality = 80;
-  }
-  if (quality >= 100) {
-    quality = 100;
   }
   
   memset(&cinfo, 0, sizeof(struct jpeg_decompress_struct));
@@ -735,54 +784,67 @@ transcodeJPEG(Ychannel *channelin, Ychannel *channelout,
 	   (size_t) sizeof(struct jpeg_compress_struct));
      */
     jpeg_create_compress(&cinfoout);
-    
+
     if (ymaginejpeg_input(&cinfo, channelin) >= 0 &&
         ymaginejpeg_output(&cinfoout, channelout) >= 0) {
-      if (prepareDecompressor(&cinfo, quality) == 0) {
-
-        /* shader relies on composing which only supports RGBA 4 channels */
-        int colormode =
-            (shader == NULL) ? VBITMAP_COLOR_RGB : VBITMAP_COLOR_RGBA;
-
+      if (prepareDecompressor(&cinfo, options) == YMAGINE_OK) {
         /* markers copy option (NONE, COMMENTS or ALL) */
-        JCOPY_OPTION copyoption = JCOPYOPT_ALL;
+        JCOPY_OPTION copyoption;
+        int metamode = YMAGINE_METAMODE_DEFAULT;
+
+        if (options != NULL) {
+          metamode = options->metamode;
+        }
+        if (metamode == YMAGINE_METAMODE_NONE) {
+          copyoption = JCOPYOPT_NONE;
+        } else if (metamode == YMAGINE_METAMODE_COMMENTS) {
+          copyoption = JCOPYOPT_COMMENTS;
+        } else if (metamode == YMAGINE_METAMODE_ALL) {
+          copyoption = JCOPYOPT_ALL;
+        } else {
+          /* Default to copy all markers */
+          copyoption = JCOPYOPT_ALL;
+        }
+
         /* Enable saving of extra markers that we want to copy */
         if (copyoption != JCOPYOPT_NONE) {
           jcopy_markers_setup(&cinfo, copyoption);
         }
         
-        /* Force image to be decoded in RGB mode, since this is
-         preferred input mode for encoder */
-        if (startDecompressor(&cinfo, colormode) == 0) {
-          int reqwidth, reqheight;
+        /* Force image to be decoded without colorspace conversion if possible */
+        if (jpeg_read_header(&cinfo, TRUE) == JPEG_HEADER_OK) {
+          YmagineFormatOptions_invokeCallback(options, YMAGINE_IMAGEFORMAT_JPEG,
+                                              cinfo.image_width, cinfo.image_height);
+
           /* Other compression settings */
-          int smooth = 0;
           int optimize = 0;
           int progressive = 0;
           int grayscale = 0;
           
           if (quality >= 90) {
             optimize = 1;
-            smooth = 50;
           }
-          
-          computeBounds(cinfo.image_width, cinfo.image_height,
-                        maxWidth, maxHeight, scalemode,
-                        &reqwidth, &reqheight);
-          
-          cinfoout.image_width = reqwidth;
-          cinfoout.image_height = reqheight;
-          set_colormode(&cinfoout, colormode);
+
+          if (options != NULL && options->pixelshader != NULL) {
+            /* If a shader is enabled, force RGBA mode */
+            cinfo.out_color_space = JCS_EXT_RGBA;
+            cinfoout.in_color_space = cinfo.out_color_space;
+            cinfoout.input_components = 4;
+          } else if (options != NULL && options->sharpen > 0.0f) {
+            cinfo.out_color_space = JCS_RGB;
+            cinfoout.in_color_space = cinfo.out_color_space;
+            cinfoout.input_components = 3;
+          } else {
+            /* Otherwise sse same colorspace than input image (typically YCbCr) */
+            cinfo.out_color_space = cinfo.jpeg_color_space;
+            cinfoout.in_color_space = cinfo.out_color_space;
+            cinfoout.input_components = JpegPixelSize(cinfoout.in_color_space);
+          }
+
           jpeg_set_defaults(&cinfoout);
-          
-#if YMAGINE_DEBUG_JPEG
-          ALOGD("transcode: %dx%d req: %dx%d\n",
-                cinfoout.image_width, cinfoout.image_height,
-                maxWidth, maxHeight);
-#endif
+          cinfoout.optimize_coding = FALSE;
           
           jpeg_set_quality(&cinfoout, quality, FALSE);
-          cinfoout.smoothing_factor = smooth;
           if (grayscale) {
             /* Force a monochrome JPEG file to be generated. */
             jpeg_set_colorspace(&cinfoout, JCS_GRAYSCALE);
@@ -791,28 +853,24 @@ transcodeJPEG(Ychannel *channelin, Ychannel *channelout,
             /* Enable entropy parm optimization. */
             cinfoout.optimize_coding = TRUE;
           }
+
+          /* If non-zero, the input image is smoothed; the value should
+             be 1 for minimal smoothing to 100 for maximum smoothing. */
+          cinfoout.smoothing_factor = 0;
+
           if (progressive) {
             /* Select simple progressive mode. */
             jpeg_simple_progression(&cinfoout);
           }
-
-          jpeg_start_compress(&cinfoout, TRUE);
-          if (copyoption != JCOPYOPT_NONE) {
-            /* Copy to the output file any extra markers that we want to preserve */
-            jcopy_markers_execute(&cinfo, &cinfoout, copyoption);
-          }
+          setCompressorOptions(&cinfoout, options);
 
           cinfo.client_data = (void*) NULL;
           cinfoout.client_data = (void*) NULL;
 
-          nlines = decompress_jpeg(&cinfo, &cinfoout, NULL, 0, 0, 0,
-                                   colormode, scalemode, shader);
+          nlines = decompress_jpeg(&cinfo, &cinfoout, copyoption, NULL, options);
           if (nlines > 0) {
             rc = YMAGINE_OK;
           }
-          
-          /* Clean up compressor */
-          jpeg_finish_compress(&cinfoout);
         }
       }
     }
@@ -825,7 +883,7 @@ transcodeJPEG(Ychannel *channelin, Ychannel *channelout,
 }
 
 int
-encodeJPEG(Vbitmap *vbitmap, Ychannel *channelout, int quality)
+encodeJPEG(Vbitmap *vbitmap, Ychannel *channelout, YmagineFormatOptions *options)
 {
   struct jpeg_compress_struct cinfoout;
   struct noop_error_mgr jerr;
@@ -834,19 +892,11 @@ encodeJPEG(Vbitmap *vbitmap, Ychannel *channelout, int quality)
   int nlines = 0;
   JSAMPROW row_pointer[1];
   unsigned char *pixels;
-  int i;
   int width;
   int height;
   int pitch;
   int colormode;
-
-  /* Quality, 0=worst, 100=best, default to 80 */
-  if (quality < 0) {
-    quality = 80;
-  }
-  if (quality >= 100) {
-    quality = 100;
-  }
+  int i;
 
   if (!YchannelWritable(channelout)) {
     return result;
@@ -857,7 +907,7 @@ encodeJPEG(Vbitmap *vbitmap, Ychannel *channelout, int quality)
   }
 
   rc = VbitmapLock(vbitmap);
-  if (rc < 0) {
+  if (rc != YMAGINE_OK) {
     ALOGE("AndroidBitmap_lockPixels() failed");
     return result;
   }
@@ -877,14 +927,13 @@ encodeJPEG(Vbitmap *vbitmap, Ychannel *channelout, int quality)
 
     if (ymaginejpeg_output(&cinfoout, channelout) >= 0) {
       /* Other compression settings */
-      int smooth = 0;
       int optimize = 0;
       int progressive = 0;
       int grayscale = 0;
+      int quality = YmagineFormatOptions_normalizeQuality(options);
 
       if (quality >= 90) {
         optimize = 1;
-        smooth = 1;
       }
 
       width = VbitmapWidth(vbitmap);
@@ -900,7 +949,6 @@ encodeJPEG(Vbitmap *vbitmap, Ychannel *channelout, int quality)
       jpeg_set_defaults(&cinfoout);
 
       jpeg_set_quality(&cinfoout, quality, FALSE);
-      cinfoout.smoothing_factor = smooth;
       if (grayscale) {
         /* Force a monochrome JPEG file to be generated. */
         jpeg_set_colorspace(&cinfoout, JCS_GRAYSCALE);
@@ -913,6 +961,7 @@ encodeJPEG(Vbitmap *vbitmap, Ychannel *channelout, int quality)
         /* Select simple progressive mode. */
         jpeg_simple_progression(&cinfoout);
       }
+      setCompressorOptions(&cinfoout, options);
       jpeg_start_compress(&cinfoout, TRUE);
 
       pixels = VbitmapBuffer(vbitmap);

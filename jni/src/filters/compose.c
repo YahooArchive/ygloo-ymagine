@@ -59,15 +59,22 @@ composeOver(unsigned char *output,
 {
   int alpha = color[3];
 
-  // a_o = 1 - (1-a_t)(1-a_b)
-  int alphaOut = alpha + (((255-alpha) * source[3])/255);
-  int alphaMult = alphaOut - alpha;
+  if (alpha == 0) {
+    output[0] = source[0];
+    output[1] = source[1];
+    output[2] = source[2];
+    output[3] = source[3];
+  } else {
+    // a_o = 1 - (1-a_t)(1-a_b)
+    int alphaOut = alpha + (((255-alpha) * source[3])/255);
+    int alphaMult = alphaOut - alpha;
 
-  // c_o = (a_t*c_t + (1-a_t)*a_b*c_b)/a_o
-  output[0] = MIN(MAX_VAL, ((alpha*color[0]) + (alphaMult*source[0]))/alphaOut);
-  output[1] = MIN(MAX_VAL, ((alpha*color[1]) + (alphaMult*source[1]))/alphaOut);
-  output[2] = MIN(MAX_VAL, ((alpha*color[2]) + (alphaMult*source[2]))/alphaOut);
-  output[3] = MIN(MAX_VAL, alphaOut);
+    // c_o = (a_t*c_t + (1-a_t)*a_b*c_b)/a_o
+    output[0] = MIN(MAX_VAL, ((alpha*color[0]) + (alphaMult*source[0]))/alphaOut);
+    output[1] = MIN(MAX_VAL, ((alpha*color[1]) + (alphaMult*source[1]))/alphaOut);
+    output[2] = MIN(MAX_VAL, ((alpha*color[2]) + (alphaMult*source[2]))/alphaOut);
+    output[3] = MIN(MAX_VAL, alphaOut);
+  }
 }
 
 #define composeUnder(out, source, color) composeOver(out, color, source)
@@ -202,15 +209,21 @@ composeLuminance(unsigned char *output,
 {
   int alpha = (color[0] + color[1] + color[2]) / 3;
 
-  // a_o = 1 - (1-a_t)(1-a_b)
-  int alphaOut = alpha + (((255-alpha) * source[3])/255);
-  int alphaMult = alphaOut - alpha;
+  if (alpha == 0) {
+    output[0] = source[0];
+    output[1] = source[1];
+    output[2] = source[2];
+    output[3] = source[3];
+  } else {
+    // a_o = 1 - (1-a_t)(1-a_b)
+    int alphaOut = alpha + (((255-alpha) * source[3])/255);
+    int alphaMult = alphaOut - alpha;
 
-  // c_o = (a_t*c_t + (1-a_t)*a_b*c_b)/a_o
-  output[0] = MIN(MAX_VAL, ((alpha*color[0]) + (alphaMult*source[0]))/alphaOut);
-  output[1] = MIN(MAX_VAL, ((alpha*color[1]) + (alphaMult*source[1]))/alphaOut);
-  output[2] = MIN(MAX_VAL, ((alpha*color[2]) + (alphaMult*source[2]))/alphaOut);
-  output[3] = MIN(MAX_VAL, alphaOut);
+    output[0] = MIN(MAX_VAL, ((alpha*color[0]) + (alphaMult*source[0]))/alphaOut);
+    output[1] = MIN(MAX_VAL, ((alpha*color[1]) + (alphaMult*source[1]))/alphaOut);
+    output[2] = MIN(MAX_VAL, ((alpha*color[2]) + (alphaMult*source[2]))/alphaOut);
+    output[3] = MIN(MAX_VAL, alphaOut);
+  }
 }
 
 // Same as composeOver, but use luminance as alpha value
@@ -220,15 +233,22 @@ composeLuminanceInv(unsigned char *output,
 {
   int alpha = 255 - (color[0] + color[1] + color[2]) / 3;
 
-  // a_o = 1 - (1-a_t)(1-a_b)
-  int alphaOut = alpha + (((255-alpha) * source[3])/255);
-  int alphaMult = alphaOut - alpha;
+  if (alpha == 0) {
+    output[0] = source[0];
+    output[1] = source[1];
+    output[2] = source[2];
+    output[3] = source[3];
+  } else {
+    // a_o = 1 - (1-a_t)(1-a_b)
+    int alphaOut = alpha + (((255-alpha) * source[3])/255);
+    int alphaMult = alphaOut - alpha;
 
-  // c_o = (a_t*c_t + (1-a_t)*a_b*c_b)/a_o
-  output[0] = MIN(MAX_VAL, ((alpha*color[0]) + (alphaMult*source[0]))/alphaOut);
-  output[1] = MIN(MAX_VAL, ((alpha*color[1]) + (alphaMult*source[1]))/alphaOut);
-  output[2] = MIN(MAX_VAL, ((alpha*color[2]) + (alphaMult*source[2]))/alphaOut);
-  output[3] = MIN(MAX_VAL, alphaOut);
+    // c_o = (a_t*c_t + (1-a_t)*a_b*c_b)/a_o
+    output[0] = MIN(MAX_VAL, ((alpha*color[0]) + (alphaMult*source[0]))/alphaOut);
+    output[1] = MIN(MAX_VAL, ((alpha*color[1]) + (alphaMult*source[1]))/alphaOut);
+    output[2] = MIN(MAX_VAL, ((alpha*color[2]) + (alphaMult*source[2]))/alphaOut);
+    output[3] = MIN(MAX_VAL, alphaOut);
+  }
 }
 
 // Extract luminance of source and multiply it by color
@@ -277,7 +297,7 @@ composeColorize(unsigned char *output,
 
 static YINLINE int
 composeLine(unsigned char *source, unsigned char *overlay, 
-                int bpp, int overlaybpp, int width, 
+                int bpp, int overlaybpp, int width,
                 int composeMode)
 {
   int rc = YMAGINE_ERROR;
@@ -437,10 +457,10 @@ Ymagine_composeLine(unsigned char *srcdata, int srcbpp, int srcwidth,
   return rc;
 }
 
-
 int
-Ymagine_composeColor(Vbitmap *vbitmap, int color,
-             ymagineCompose composeMode)
+Ymagine_drawRect(Vbitmap *vbitmap,
+                 int bx, int by, int bw, int bh,
+                 int color, ymagineCompose composeMode)
 {
     int rc = YMAGINE_ERROR;
     unsigned char *pixels = NULL;
@@ -467,6 +487,32 @@ Ymagine_composeColor(Vbitmap *vbitmap, int color,
     height = VbitmapRegionHeight(vbitmap);
     pitch = VbitmapPitch(vbitmap);
 
+    if (width < 0) {
+      width = 0;
+    }
+    if (height < 0) {
+      height = 0;
+    }
+
+    if (bx < 0) {
+      bw += bx;
+      bx = 0;
+    }
+    if (bx + bw > width) {
+      bw = width - bx;
+    }
+    if (by < 0) {
+      bh += by;
+      by = 0;
+    }
+    if (by + bh > height) {
+      by = height - bx;
+    }
+
+    if (bw <= 0 || bh <= 0) {
+      return YMAGINE_OK;
+    }
+
     if (pixels != NULL) {
         unsigned char colorArray[4] = {
             (color >> RSHIFT) & CHANNEL_MASK,
@@ -474,14 +520,29 @@ Ymagine_composeColor(Vbitmap *vbitmap, int color,
             (color >> BSHIFT) & CHANNEL_MASK,
             (color >> ASHIFT) & CHANNEL_MASK
         };
-        for (i = 0; i < height; i++) {
-            rc = composeLine(pixels + (i * pitch), colorArray, bpp,
-                                overlaybpp, width, composeMode);
+        unsigned char *l = pixels + by * pitch + bx * bpp;
+
+        for (i = 0; i < bh; i++) {
+            rc = composeLine(l, colorArray, bpp, overlaybpp, bw, composeMode);
             if (rc == YMAGINE_ERROR) break;
+            l += pitch;
         }
     }
     VbitmapUnlock(vbitmap);
     return rc;
+}
+
+int
+Ymagine_composeColor(Vbitmap *vbitmap,
+                     int color, ymagineCompose composeMode)
+{
+    int width;
+    int height;
+
+    width = VbitmapRegionWidth(vbitmap);
+    height = VbitmapRegionHeight(vbitmap);
+
+    return Ymagine_drawRect(vbitmap, 0, 0, width, height, color, composeMode);
 }
 
 int

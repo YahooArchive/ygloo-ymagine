@@ -10,47 +10,24 @@
  * the License. See accompanying LICENSE file.
  */
 
-/**
-* @file   blur.h
-* @addtogroup Blur
-* @brief  Nearly-Gaussian blur
-*/
-
-#ifndef _YMAGINE_BLUR_H
-#define _YMAGINE_BLUR_H 1
-
-#include "ymagine/ymagine.h"
+#ifndef _YMAGINE_FIXEDPOINT_H
+#define _YMAGINE_FIXEDPOINT_H 1
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * @defgroup Blur Blur
- *
- * This module provides API for blurring images
- *
- * @{
- */
+#define YFIXED_SHIFT 10
+#define YFIXED_ZERO  0
+#define YFIXED_ONE   (1 << YFIXED_SHIFT)
 
-/**
- * @brief Applies gaussian blur
- * @ingroup Blur
- *
- * Applies nearly-gaussian blur on the buffer included in the vbitmap 
- *
- * @param vbitmap This is a pointer to a vbitmap that the blur will be applied on
- * @return YMAGINE_OK if blurring is succesfull, else YMAGINE_ERROR
- */
-int
-Ymagine_blur(Vbitmap *vbitmap, int radius);
-
-/**
- * @}
- */
+#define Y_INT(x)     ((x) >> YFIXED_SHIFT)
+#define Y_FRAC(x)    ((x) & (YFIXED_ONE - 1))
+#define Y_MUL(x,y)   (((x)*(y))>>YFIXED_SHIFT)
+#define Y_DIV(x,y)   (((x)*YFIXED_ONE)/(y))
 
 #ifdef __cplusplus
 };
 #endif
 
-#endif /* _YMAGINE_BLUR_H */
+#endif /* _YMAGINE_FIXEDPOINT_H */

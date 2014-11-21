@@ -61,6 +61,8 @@ YOSAL_OBJECT_EXPORT(Yshader_PixelShaderEffect)
 
 struct PixelShaderStruct {
   YArray *kernellist;
+  int nshaders;
+  int nvignettes;
 };
 
 /*
@@ -172,6 +174,9 @@ Yshader_PixelShader_create()
   shader->kernellist = kernellist;
   YArray_setElementReleaseFunc(kernellist, (YArrayElementReleaseFunc) effectRelease);
 
+  shader->nshaders = 0;
+  shader->nvignettes = 0;
+
   return shader;
 }
 
@@ -216,7 +221,18 @@ shader_append(PixelShader* shader,
     rc = YMAGINE_ERROR;
   } else {
     int result = YArray_append(shader->kernellist, (void*) p);
-    if (result != YOSAL_OK) {
+    if (result == YOSAL_OK) {
+      switch (element->type) {
+      case YSHADER_PIXEL_SHADER_COLOR:
+        shader->nshaders++;
+        break;
+      case YSHADER_PIXEL_SHADER_VIGNETTE:
+        shader->nvignettes++;
+        break;
+      case YSHADER_PIXEL_SHADER_NONE:
+        break;
+      }
+    } else {
       rc = YMAGINE_ERROR;
       effectRelease(p);
     }
@@ -568,6 +584,23 @@ vignetteShaderFunction(Yshader_PixelShaderEffect* effect,
   VbitmapUnlock(map);
 
   return YMAGINE_OK;
+}
+
+/**
+ * @brief Number of Vignette transformations in shader
+ * @ingroup Pixelshader
+ *
+ * @param shader shader to check for vignettes
+ * @return number of vignettes transformations in this shader, 0 if none
+ */
+int
+Yshader_hasVignette(PixelShader *shader)
+{
+  if (shader == NULL) {
+    return 0;
+  }
+
+  return shader->nvignettes;
 }
 
 /**

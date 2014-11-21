@@ -18,6 +18,7 @@
 
 # Keep inner class for Options
 -keep public class com.yahoo.mobile.client.android.ymagine.BitmapFactory$Options
+-keep public class com.yahoo.ymagine.Ymagine$Options
 
 # or the more aggresive way
 -keep class com.yahoo.ymagine.** {*;}

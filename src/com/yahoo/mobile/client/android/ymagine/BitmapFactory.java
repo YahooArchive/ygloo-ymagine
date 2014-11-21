@@ -22,7 +22,9 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
 
+import com.yahoo.ymagine.ByteBufferInputStream;
 import com.yahoo.ymagine.Shader;
+import com.yahoo.ymagine.Ymagine;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
@@ -32,6 +34,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 
 /**
  *
@@ -52,7 +55,8 @@ public class BitmapFactory {
     // Default resolution to run quantize on
     private static final int THUMBNAIL_SIZE = 64;
 
-    private static final String[] NATIVE_LIBRARIES = { "yahoo_ymagine" };
+    private static final String[] DEFAULT_NATIVE_LIBRARIES = { "yahoo_ymagine" };
+    private static String[] sNativeLibraries = DEFAULT_NATIVE_LIBRARIES;
     private enum NativeStatus {
         UNINITIALIZED,
         NEED_WORKAROUND,
@@ -61,7 +65,7 @@ public class BitmapFactory {
     }
 
     // Global setting for enabling or disabling JNI interface. Set to NativeStatus.UNINITIALIZED
-    // for automatic initialization, NativeStatus.DISABLED for forcing native support off
+    // for automatic initialization, or NativeStatus.DISABLED for forcing native support off.
     private static NativeStatus sHasNative = NativeStatus.UNINITIALIZED;
 
     // Set-able parameter to allow caller to turn native API off
@@ -202,17 +206,57 @@ public class BitmapFactory {
      * @return true on success
      */
     static public synchronized boolean init(Context context) {
+        return init(context, true);
+    }
+
+    /**
+     * Test if the native image processing library was loaded successfully
+     *
+     * @return true on success
+     */
+    static public synchronized boolean init(Context context, boolean ignoreErrors) {
         if ( (sHasNative == NativeStatus.UNINITIALIZED) || (sHasNative == NativeStatus.NEED_WORKAROUND && context != null) ) {
-            if (LibraryLoaderHelper.tryLoadLibraries(context, NATIVE_LIBRARIES)) {
-                sHasNative = NativeStatus.ENABLED;
-            } else if (context == null) {
+            if (context == null) {
                 /*
                  * First attempt to load libraries the standard way failed. If a context is provided, will try again
                  * using the load work-around
                  */
-                sHasNative = NativeStatus.NEED_WORKAROUND;
+                int loaded = 0;
+
+                try {
+                    for (String libName : sNativeLibraries) {
+                        System.loadLibrary(libName);
+                        loaded++;
+                    }
+
+                    sHasNative = NativeStatus.ENABLED;
+                } catch (UnsatisfiedLinkError e) {
+                    if (loaded == 0) {
+                        /* can safely retry with a context */
+                        sHasNative = NativeStatus.NEED_WORKAROUND;
+                    } else {
+                        /* some libraries are already loaded, maybe unsafe to retry with a context */
+                        sHasNative = NativeStatus.NEED_WORKAROUND;
+                    }
+
+                    if (ignoreErrors) {
+                        Log.e(LOG_TAG, "Error loading libraries", e);
+                    } else {
+                        throw e;
+                    }
+                }
             } else {
-                sHasNative = NativeStatus.DISABLED;
+                try {
+                    LibraryLoader.loadLibraries(context, false, sNativeLibraries);
+                    sHasNative = NativeStatus.ENABLED;
+                } catch (UnsatisfiedLinkError e) {
+                    sHasNative = NativeStatus.DISABLED;
+                    if (ignoreErrors) {
+                        Log.e(LOG_TAG, "Error loading libraries", e);
+                    } else {
+                        throw e;
+                    }
+                }
             }
         }
 
@@ -223,7 +267,14 @@ public class BitmapFactory {
             return false;
         }
 
+        //Everything went well, libraries loaded successfully. We can report Ymagine to register itself as ready too.
+        Ymagine.init(true);
+
         return true;
+    }
+
+    static public synchronized void setNativeLibraries(String[] nativeLibraries) {
+        sNativeLibraries = nativeLibraries;
     }
 
     static public boolean hasNative() {
@@ -271,7 +322,7 @@ public class BitmapFactory {
      * @param data input byte array
      * @param offset offset to begin reading at from byte array
      * @param length length of data in byte array
-     * @return
+     * @return bitmap created from byte array
      */
     public static Bitmap decodeByteArray(byte[] data, int offset, int length) {
         return decodeByteArray(data, offset, length, null, null);
@@ -311,7 +362,7 @@ public class BitmapFactory {
             stream = new ByteArrayInputStream(data, offset, length);
             bm = doDecode(stream, outPadding, opts);
         } catch (Exception e) {
-            // On error, silently fallback to returning null
+            // On error, silently fall back to returning null
        } finally {
             if (stream != null) {
                 try {
@@ -325,6 +376,46 @@ public class BitmapFactory {
     }
 
     /**
+     * Decode an immutable bitmap from the specified ByteBuffer.
+     * 
+     * @param data input byte array
+     * @return bitmap created from ByteBuffer
+     */
+    public static Bitmap decodeByteBuffer(ByteBuffer data) {
+        return decodeByteBuffer(data, null, null);
+    }
+
+    /**
+     * Decode an immutable bitmap from the specified ByteBuffer using Options
+     * opts.
+     * 
+     * @param data input byte array
+     * @param opts Options to use during decoding
+     * @return bitmap created from ByteBuffer
+     */
+    public static Bitmap decodeByteBuffer(ByteBuffer data, BitmapFactory.Options opts) {
+        return decodeByteBuffer(data, null, opts);
+    }
+
+    /**
+     * Decode an immutable bitmap from the specified ByteBuffer using Options
+     * opts and given output padding.
+     * 
+     * @param data input byte array
+     * @param opts Options to use during decoding
+     * @param outPadding output padding
+     * @return bitmap created from ByteBuffer
+     */
+    public static Bitmap decodeByteBuffer(ByteBuffer data,
+            Rect outPadding, BitmapFactory.Options opts) {
+        if (data == null) {
+            return null;
+        }
+
+        return decodeStream(new ByteBufferInputStream(data), outPadding, opts);
+    }
+
+   /**
      * Decode contents of file at path pathName into a bitmap.
      *
      * @param pathName path to file to be decoded
@@ -921,7 +1012,8 @@ public class BitmapFactory {
         ImageFormat informat = getImageFormat(inheader, nbytes);
 
         if (useNative) {
-            if (informat == ImageFormat.JPEG || informat == ImageFormat.WEBP) {
+            if (informat == ImageFormat.JPEG || informat == ImageFormat.WEBP ||
+                informat == ImageFormat.PNG || informat == ImageFormat.GIF) {
                 if (opts != null && opts.inStream != null) {
                     // Run image transcoding, saving output as another
                     // jpeg image into stream
@@ -1096,9 +1188,4 @@ public class BitmapFactory {
     private static native int native_compose(Bitmap bitmap, int color, int composeMode);
 
     private static native int native_applyShader(Bitmap bitmap, Shader shader);
-
-    // Static initialization for JNI implementation
-    static {
-        hasNative();
-    }
 }

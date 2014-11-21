@@ -38,6 +38,7 @@ static pthread_mutex_t gYmagineBitmapFactory_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static jclass gBitmap_clazz = 0;
 static jclass gBitmapConfig_clazz = 0;
+static jclass gOptions_clazz = 0;
 
 static jmethodID gBitmap_createBitmapMethodID = 0;
 static jfieldID gBitmapConfig_RGBAFieldID = 0;
@@ -353,10 +354,15 @@ bitmap_jni_decodeStreamOptions(JNIEnv* _env, jobject object,
 
   if (justBounds) {
     vbitmap = VbitmapInitNone();
+    rc = YmagineDecodeResize(vbitmap, channel, maxWidth, maxHeight, scaleMode);
   } else {
     vbitmap = VbitmapInitAndroid(_env, jbitmap);
+    if (jbitmap != NULL) {
+      rc = YmagineDecodeInPlace(vbitmap, channel, maxWidth, maxHeight, scaleMode);
+    } else {
+      rc = YmagineDecodeResize(vbitmap, channel, maxWidth, maxHeight, scaleMode);
+    }
   }
-  rc = YmagineDecodeResize(vbitmap, channel, maxWidth, maxHeight, scaleMode);
 
   if (rc == YMAGINE_OK && VbitmapType(vbitmap) == VBITMAP_ANDROID) {
     outbitmap = VbitmapGetAndroid(vbitmap);
@@ -396,6 +402,7 @@ bitmap_jni_transcodeStream(JNIEnv* _env, jobject object,
   Ychannel *channelin;
   Ychannel *channelout;
   jint rc = -1;
+  YmagineFormatOptions *options;
 
   if (streamin == NULL || streamout == NULL) {
     return rc;
@@ -405,10 +412,11 @@ bitmap_jni_transcodeStream(JNIEnv* _env, jobject object,
   if (channelin != NULL) {
     channelout = YchannelInitJavaOutputStream(_env, streamout);
     if (channelout != NULL) {
-      if (transcodeJPEG(channelin, channelout, maxWidth, maxHeight,
-                        scaleMode, quality, NULL) == YMAGINE_OK) {
+      options = YmagineFormatOptions_Create();
+      if (YmagineTranscode(channelin, channelout, options) == YMAGINE_OK) {
         rc = 0;
-	    }
+      }
+      YmagineFormatOptions_Release(options);
       YchannelRelease(channelout);
     }
     YchannelRelease(channelin);
@@ -755,6 +763,9 @@ int register_BitmapFactory(JNIEnv *_env, const char *classPathName)
     ALOGE("Can't find %s", buf);
     return JNI_FALSE;
   }
+
+  /* keep a global reference to Option clazz so that fielId is alreadys valid */
+  gOptions_clazz = (*_env)->NewGlobalRef(_env, clazz);
 
   /* Standard BitmapFactory.Options fields */
   gOptions_justBounds = (*_env)->GetFieldID(_env, clazz, "inJustDecodeBounds", "Z");

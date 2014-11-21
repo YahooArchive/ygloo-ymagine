@@ -225,6 +225,7 @@ ymagine_jni_quantize(JNIEnv* _env, jobject object,
 }
 
 static volatile int gVbitmap_inited = -1;
+static volatile int gYmagine_inited = -1;
 static pthread_mutex_t gInit_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static jclass gVbitmap_clazz = 0;
@@ -234,6 +235,132 @@ static jfieldID gVbitmap_nativeHandleFieldID = 0;
 
 static jclass gShader_clazz = 0;
 static jfieldID gShader_nativeHandleFieldID = 0;
+
+static jclass gOptions_clazz = 0;
+static jfieldID gOptions_sharpenFieldID;
+static jfieldID gOptions_rotateFieldID;
+static jfieldID gOptions_backgroundColorFieldID;
+static jfieldID gOptions_maxWidthFieldID;
+static jfieldID gOptions_maxHeightFieldID;
+static jfieldID gOptions_shaderFieldID;
+static jfieldID gOptions_scaleTypeFieldID;
+static jfieldID gOptions_outputFormatFieldID;
+static jfieldID gOptions_qualityFieldID;
+static jfieldID gOptions_offsetCropModeFieldID;
+static jfieldID gOptions_sizeCropModeFieldID;
+static jfieldID gOptions_cropAbsoluteXFieldID;
+static jfieldID gOptions_cropAbsoluteYFieldID;
+static jfieldID gOptions_cropAbsoluteWidthFieldID;
+static jfieldID gOptions_cropAbsoluteHeightFieldID;
+static jfieldID gOptions_cropRelativeXFieldID;
+static jfieldID gOptions_cropRelativeYFieldID;
+static jfieldID gOptions_cropRelativeWidthFieldID;
+static jfieldID gOptions_cropRelativeHeightFieldID;
+
+static int
+ymagine_init(JNIEnv *_env, const char *classname)
+{
+  char buf[256];
+
+  if (gYmagine_inited < 0) {
+    pthread_mutex_lock(&gInit_mutex);
+    if (gYmagine_inited < 0) {
+      jclass clazz;
+
+      /* Resolve classes */
+      snprintf(buf, sizeof(buf), "%s$Options", classname);
+      clazz = (*_env)->FindClass(_env, buf);
+      if (clazz != 0) {
+        gOptions_clazz = (*_env)->NewGlobalRef(_env, clazz);
+        gOptions_sharpenFieldID = (*_env)->GetFieldID(_env,
+                                                      gOptions_clazz,
+                                                      "sharpen", "F");
+        gOptions_rotateFieldID = (*_env)->GetFieldID(_env,
+                                                     gOptions_clazz,
+                                                     "rotate", "F");
+        gOptions_backgroundColorFieldID = (*_env)->GetFieldID(_env,
+                                                              gOptions_clazz,
+                                                              "backgroundColor", "I");
+        gOptions_maxWidthFieldID = (*_env)->GetFieldID(_env,
+                                                       gOptions_clazz,
+                                                       "maxWidth", "I");
+        gOptions_maxHeightFieldID = (*_env)->GetFieldID(_env,
+                                                        gOptions_clazz,
+                                                        "maxHeight", "I");
+        gOptions_shaderFieldID = (*_env)->GetFieldID(_env,
+                                                     gOptions_clazz,
+                                                     "shader", "Lcom/yahoo/ymagine/Shader;");
+        gOptions_scaleTypeFieldID = (*_env)->GetFieldID(_env,
+                                                        gOptions_clazz,
+                                                        "scaleType", "I");
+        gOptions_outputFormatFieldID = (*_env)->GetFieldID(_env,
+                                                           gOptions_clazz,
+                                                           "outputFormat", "I");
+        gOptions_qualityFieldID = (*_env)->GetFieldID(_env,
+                                                           gOptions_clazz,
+                                                           "quality", "I");
+        gOptions_offsetCropModeFieldID = (*_env)->GetFieldID(_env,
+                                                             gOptions_clazz,
+                                                             "offsetCropMode", "I");
+        gOptions_sizeCropModeFieldID = (*_env)->GetFieldID(_env,
+                                                           gOptions_clazz,
+                                                           "sizeCropMode", "I");
+        gOptions_cropAbsoluteXFieldID = (*_env)->GetFieldID(_env,
+                                                            gOptions_clazz,
+                                                            "cropAbsoluteX", "I");
+        gOptions_cropAbsoluteYFieldID = (*_env)->GetFieldID(_env,
+                                                            gOptions_clazz,
+                                                            "cropAbsoluteY", "I");
+        gOptions_cropAbsoluteWidthFieldID = (*_env)->GetFieldID(_env,
+                                                                gOptions_clazz,
+                                                                "cropAbsoluteWidth", "I");
+        gOptions_cropAbsoluteHeightFieldID = (*_env)->GetFieldID(_env,
+                                                                 gOptions_clazz,
+                                                                 "cropAbsoluteHeight", "I");
+        gOptions_cropRelativeXFieldID = (*_env)->GetFieldID(_env,
+                                                            gOptions_clazz,
+                                                            "cropRelativeX", "F");
+        gOptions_cropRelativeYFieldID = (*_env)->GetFieldID(_env,
+                                                            gOptions_clazz,
+                                                            "cropRelativeY", "F");
+        gOptions_cropRelativeWidthFieldID = (*_env)->GetFieldID(_env,
+                                                                gOptions_clazz,
+                                                                "cropRelativeWidth", "F");
+        gOptions_cropRelativeHeightFieldID = (*_env)->GetFieldID(_env,
+                                                                 gOptions_clazz,
+                                                                 "cropRelativeHeight", "F");
+      }
+
+      if ( (gOptions_clazz == 0) ||
+           (gOptions_sharpenFieldID == 0) ||
+           (gOptions_rotateFieldID == 0) ||
+           (gOptions_backgroundColorFieldID == 0) ||
+           (gOptions_maxWidthFieldID == 0) ||
+           (gOptions_maxHeightFieldID == 0) ||
+           (gOptions_shaderFieldID == 0) ||
+           (gOptions_scaleTypeFieldID == 0) ||
+           (gOptions_outputFormatFieldID == 0) ||
+           (gOptions_qualityFieldID == 0) ||
+           (gOptions_offsetCropModeFieldID == 0) ||
+           (gOptions_sizeCropModeFieldID == 0) ||
+           (gOptions_cropAbsoluteXFieldID == 0) ||
+           (gOptions_cropAbsoluteYFieldID == 0) ||
+           (gOptions_cropAbsoluteWidthFieldID == 0) ||
+           (gOptions_cropAbsoluteHeightFieldID == 0) ||
+           (gOptions_cropRelativeXFieldID == 0) ||
+           (gOptions_cropRelativeYFieldID == 0) ||
+           (gOptions_cropRelativeWidthFieldID == 0) ||
+           (gOptions_cropRelativeHeightFieldID == 0) ) {
+        gYmagine_inited = 0;
+      } else {
+        gYmagine_inited = 1;
+      }
+    }
+    pthread_mutex_unlock(&gInit_mutex);
+  }
+
+  return (gYmagine_inited > 0);
+}
 
 static int
 vbitmap_init(JNIEnv *_env, const char *classname)
@@ -260,7 +387,8 @@ vbitmap_init(JNIEnv *_env, const char *classname)
 
       if ( (gVbitmap_clazz == 0) ||
            (gVbitmap_retainMethodID == 0) ||
-           (gVbitmap_releaseMethodID == 0) ) {
+           (gVbitmap_releaseMethodID == 0) ||
+           (gVbitmap_nativeHandleFieldID == 0) ) {
         gVbitmap_inited = 0;
       } else {
         gVbitmap_inited = 1;
@@ -541,36 +669,105 @@ static Vbitmap* getVbitmap(JNIEnv *_env, jobject jvbitmap) {
   return (Vbitmap*) convertJLongToPointer(lhandle);
 }
 
+/**
+ * converts Ymagine$Options to YmagineFormatOptions*
+ *
+ * @param _env jni environment
+ * @param joptions java object Ymagine$Options, NULL is a valid value
+ * @return NULL if convertion failed
+ */
+static YmagineFormatOptions* convertOptions(JNIEnv* _env, jobject joptions) {
+  YmagineFormatOptions* options;
+  PixelShader *shader = NULL;
+  jobject jshader;
+  jint offsetCropMode;
+  jint sizeCropMode;
+
+  if (joptions == NULL) {
+    return YmagineFormatOptions_Create();
+  }
+
+  jshader = (*_env)->GetObjectField(_env, joptions, gOptions_shaderFieldID);
+  if (jshader != NULL) {
+    shader = getPixelShader(_env, jshader);
+    if (shader == NULL) {
+      return NULL;
+    }
+  }
+
+  options = YmagineFormatOptions_Create();
+  if (options == NULL) {
+    return NULL;
+  }
+
+  if (shader != NULL) {
+    YmagineFormatOptions_setShader(options, shader);
+  }
+
+  YmagineFormatOptions_setSharpen(options,
+                                  (*_env)->GetFloatField(_env, joptions, gOptions_sharpenFieldID));
+  YmagineFormatOptions_setRotate(options,
+                                 (*_env)->GetFloatField(_env, joptions, gOptions_rotateFieldID));
+  YmagineFormatOptions_setBackgroundColor(options,
+                                          (*_env)->GetIntField(_env, joptions, gOptions_backgroundColorFieldID));
+  YmagineFormatOptions_setResize(options,
+                                 (*_env)->GetIntField(_env, joptions, gOptions_maxWidthFieldID),
+                                 (*_env)->GetIntField(_env, joptions, gOptions_maxHeightFieldID),
+                                 (*_env)->GetIntField(_env, joptions, gOptions_scaleTypeFieldID));
+  YmagineFormatOptions_setFormat(options,
+                                 (*_env)->GetIntField(_env, joptions, gOptions_outputFormatFieldID));
+  YmagineFormatOptions_setQuality(options,
+                                  (*_env)->GetIntField(_env, joptions, gOptions_qualityFieldID));
+
+  offsetCropMode = (*_env)->GetIntField(_env, joptions, gOptions_offsetCropModeFieldID);
+  sizeCropMode = (*_env)->GetIntField(_env, joptions, gOptions_sizeCropModeFieldID);
+
+  if (offsetCropMode == CROP_MODE_ABSOLUTE) {
+    YmagineFormatOptions_setCropOffset(options,
+                                       (*_env)->GetIntField(_env, joptions, gOptions_cropAbsoluteXFieldID),
+                                       (*_env)->GetIntField(_env, joptions, gOptions_cropAbsoluteYFieldID));
+  } else if (offsetCropMode == CROP_MODE_RELATIVE) {
+    YmagineFormatOptions_setCropOffsetRelative(options,
+                                               (*_env)->GetFloatField(_env, joptions, gOptions_cropRelativeXFieldID),
+                                               (*_env)->GetFloatField(_env, joptions, gOptions_cropRelativeYFieldID));
+  }
+  if (sizeCropMode == CROP_MODE_ABSOLUTE) {
+    YmagineFormatOptions_setCropSize(options,
+                                     (*_env)->GetIntField(_env, joptions, gOptions_cropAbsoluteWidthFieldID),
+                                     (*_env)->GetIntField(_env, joptions, gOptions_cropAbsoluteHeightFieldID));
+  } else if (sizeCropMode == CROP_MODE_RELATIVE) {
+    YmagineFormatOptions_setCropSizeRelative(options,
+                                             (*_env)->GetFloatField(_env, joptions, gOptions_cropRelativeWidthFieldID),
+                                             (*_env)->GetFloatField(_env, joptions, gOptions_cropRelativeHeightFieldID));
+  }
+
+  return options;
+}
+
 static jint JNICALL
 ymagine_jni_transcodeStream(JNIEnv* _env, jobject object,
-                           jobject streamin, jobject streamout,
-                           jint maxWidth, jint maxHeight,
-                           jint scaleMode, jint quality, jobject jshader)
+                            jobject streamin, jobject streamout,
+                            jobject joptions)
 {
   Ychannel *channelin;
   Ychannel *channelout;
-  PixelShader *shader = NULL;
   jint rc = -1;
+  YmagineFormatOptions *options;
 
   if (streamin == NULL || streamout == NULL) {
     return rc;
-  }
-
-  if (jshader != NULL) {
-    shader = getPixelShader(_env, jshader);
-
-    if (shader == NULL) {
-      return rc;
-    }
   }
 
   channelin = YchannelInitJavaInputStream(_env, streamin);
   if (channelin != NULL) {
     channelout = YchannelInitJavaOutputStream(_env, streamout);
     if (channelout != NULL) {
-      if (transcodeJPEG(channelin, channelout, maxWidth, maxHeight,
-                        scaleMode, quality, shader) == YMAGINE_OK) {
-        rc = 0;
+      options = convertOptions(_env, joptions);
+      if (options != NULL) {
+        if (YmagineTranscode(channelin, channelout, options) == YMAGINE_OK) {
+          rc = 0;
+        }
+        YmagineFormatOptions_Release(options);
       }
       YchannelRelease(channelout);
     }
@@ -597,10 +794,6 @@ static JNINativeMethod ymagine_methods[] = {
   {   "native_quantize",
     "(Ljava/lang/String;III)[I",
     (void*) ymagine_jni_quantize
-  },
-  {   "native_transcodeStream",
-    "(Ljava/io/InputStream;Ljava/io/OutputStream;IIIILcom/yahoo/ymagine/Shader;)I",
-    (void*) ymagine_jni_transcodeStream
   }
 };
 
@@ -608,6 +801,8 @@ int register_Ymagine(JNIEnv *_env, const char *classPathName)
 {
   int rc;
   int l;
+  char buf[256];
+  JNINativeMethod options_methods[1];
 
   if (classPathName == NULL) {
     return JNI_FALSE;
@@ -618,8 +813,25 @@ int register_Ymagine(JNIEnv *_env, const char *classPathName)
     return JNI_FALSE;
   }
 
+  rc = ymagine_init(_env, classPathName);
+  if (rc <= 0) {
+    return JNI_FALSE;
+  }
+
   rc = jniutils_registerNativeMethods(_env, classPathName,
                                       ymagine_methods, NELEM(ymagine_methods));
+  if (rc != JNI_TRUE) {
+    return JNI_FALSE;
+  }
+
+  snprintf(buf, sizeof(buf), "(Ljava/io/InputStream;Ljava/io/OutputStream;L%s$Options;)I", classPathName);
+
+  options_methods[0].name = "native_transcodeStream";
+  options_methods[0].signature = buf;
+  options_methods[0].fnPtr = (void*) ymagine_jni_transcodeStream;
+
+  rc = jniutils_registerNativeMethods(_env, classPathName,
+                                      options_methods, 1);
   if (rc != JNI_TRUE) {
     return JNI_FALSE;
   }

@@ -205,7 +205,7 @@ static void freeProviderData(void *info, const void *data, size_t size) {
 
 +(UIImage *) blurImage: (UIImage *) image withResizeValue: (NSInteger) resizeValue andRadius: (NSInteger) radius
 {
-    return [Ymagine blurImage:image withResizeValue:-1 andGrayScale:NO andRadius:radius];
+    return [Ymagine blurImage:image withResizeValue:resizeValue andGrayScale:NO andRadius:radius];
 }
 
 +(UIImage *) blurImage: (UIImage *) image withRadius: (NSInteger) radius

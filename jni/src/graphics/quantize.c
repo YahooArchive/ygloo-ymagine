@@ -168,7 +168,7 @@ quantizeWithOptions(Vbitmap *vbitmap, int maxcolors,
     return 0;
   }
 
-  if (VbitmapLock(vbitmap) < 0) {
+  if (VbitmapLock(vbitmap) != YMAGINE_OK) {
     return 0;
   }
 

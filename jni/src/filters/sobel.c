@@ -216,14 +216,14 @@ Vbitmap_sobel(Vbitmap *outbitmap, Vbitmap *vbitmap)
     return YMAGINE_ERROR;
   }
 
-  if (VbitmapLock(vbitmap) >= 0) {
+  if (VbitmapLock(vbitmap) == YMAGINE_OK) {
     pixels = VbitmapBuffer(vbitmap);
     width = VbitmapWidth(vbitmap);
     height = VbitmapHeight(vbitmap);
     pitch = VbitmapPitch(vbitmap);
     bpp = colorBpp(VbitmapColormode(vbitmap));
 
-    if (VbitmapLock(outbitmap) >= 0) {
+    if (VbitmapLock(outbitmap) == YMAGINE_OK) {
       opixels = VbitmapBuffer(outbitmap);
       owidth = VbitmapWidth(outbitmap);
       oheight = VbitmapHeight(outbitmap);
@@ -233,7 +233,7 @@ Vbitmap_sobel(Vbitmap *outbitmap, Vbitmap *vbitmap)
       if (width != owidth || height != oheight) {
         VbitmapUnlock(outbitmap);
         if (VbitmapResize(outbitmap, width, height) == YMAGINE_OK) {
-          if (VbitmapLock(outbitmap) < 0) {
+          if (VbitmapLock(outbitmap) != YMAGINE_OK) {
             VbitmapUnlock(vbitmap);
             return YMAGINE_ERROR;
           }
