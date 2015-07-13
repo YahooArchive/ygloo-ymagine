@@ -1,7 +1,8 @@
 # Build for all ABI, and let package manager install the correct one
-APP_ABI := armeabi armeabi-v7a x86
+APP_ABI := armeabi armeabi-v7a arm64-v8a x86
 # Or, in development mode, pick only one target to accelerate build
 # APP_ABI := armeabi-v7a
+# APP_ABI := arm64-v8a
 
 APP_PLATFORM := android-9
 
@@ -16,3 +17,6 @@ APP_PLATFORM := android-9
 #APP_STL := system
 # GNU libstdc++ as a static library
 #APP_STL := gnustl_static
+
+# Use latest clang version
+NDK_TOOLCHAIN_VERSION := clang

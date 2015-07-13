@@ -10,31 +10,23 @@
  * the License. See accompanying LICENSE file.
  */
 
-#ifndef _YMAGINE_GRAPHICS_TRANSFORMER_H
-#define _YMAGINE_GRAPHICS_TRANSFORMER_H 1
+#ifndef _YMAGINE_YMAGINEJNI_PRIV_H
+#define _YMAGINE_YMAGINEJNI_PRIV_H 1
 
 #include "ymagine/ymagine.h"
-#include "ymagine_priv.h"
-
-#include <stdlib.h>
-#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int bltLine(unsigned char *opixels, int owidth, int obpp,
-	    const unsigned char *ipixels, int iwidth, int ibpp);
+Vbitmap*
+YmagineJNI_VbitmapRetain(JNIEnv* _env, jobject vbitmapobj);
 
-int
-YmagineMergeLine(unsigned char *destpixels, int destmode, int destweight,
-                 const unsigned char *srcpixels, int srcmode, int srcweight,
-                 int width);
+Vbitmap*
+YmagineJNI_VbitmapRelease(JNIEnv* _env, jobject vbitmapobj);
 
-int
-TransformerSetKernel(Transformer *transformer, int *kernel);
 #ifdef __cplusplus
 };
 #endif
 
-#endif /* _YMAGINE_GRAPHICS_TRANSFORMER_H */
+#endif /*  _YMAGINE_YMAGINEJNI_PRIV_H */

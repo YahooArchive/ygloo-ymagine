@@ -34,12 +34,26 @@ public class Ymagine {
         FIT
     }
 
+    public enum AdjustMode {
+        /* ordinal must match the ones in format.h */
+        NONE,
+        INNER,
+        OUTER
+    }
+
     public enum ImageFormat {
         /* ordinal must match the ones in format.h */
         UNKNOWN,
         JPEG,
         WEBP,
         PNG
+    }
+
+    public enum MetaMode {
+        /* ordinal must match the ones in format.h */
+        NONE,
+        COMMENTS,
+        ALL
     }
 
     /* Those definitions must match the ones in format.h */
@@ -59,10 +73,13 @@ public class Ymagine {
         private int maxHeight;
         private Shader shader;
         private int scaleType;
+        private int adjustMode;
+        private int metaMode;
         private int outputFormat;
         private int quality;
         private float sharpen;
         private float rotate;
+        private float blur;
         private int backgroundColor;
         private int offsetCropMode;
         private int sizeCropMode;
@@ -90,11 +107,14 @@ public class Ymagine {
         public Options() {
             sharpen = 0.0f;
             rotate = 0.0f;
+            blur = 0.0f;
             maxWidth = -1;
             maxHeight = -1;
             quality = -1;
             backgroundColor = Color.argb(0, 0, 0, 0);
             scaleType = ScaleType.LETTERBOX.ordinal();
+            adjustMode = AdjustMode.NONE.ordinal();
+            metaMode = MetaMode.ALL.ordinal();
             outputFormat = ImageFormat.JPEG.ordinal();
             shader = null;
             offsetCropMode = CROP_NONE;
@@ -111,6 +131,10 @@ public class Ymagine {
 
         public void setRotate(float rotate) {
             this.rotate = rotate;
+        }
+
+        public void setBlur(float radius) {
+            this.blur = radius;
         }
 
         /**
@@ -160,6 +184,14 @@ public class Ymagine {
             scaleType = type.ordinal();
         }
 
+        public void setAdjustMode(AdjustMode mode) {
+            adjustMode = mode.ordinal();
+        }
+
+        public void setMetaMode(MetaMode mode) {
+            metaMode = mode.ordinal();
+        }
+
         public void setShader(Shader shader) {
             this.shader = shader;
         }
@@ -194,6 +226,7 @@ public class Ymagine {
     private native static int native_HSVtoRGB(int rgb);
 
     private native static int native_transcodeStream(InputStream is, OutputStream os, Options options);
+    private native static int native_encodeStream(Vbitmap vbitmap, OutputStream os, Options options);
 
     /**
      * Attempt to load a native library
@@ -368,5 +401,16 @@ public class Ymagine {
             return native_transcodeStream(is, os, options);
         }
         return -1;
+    }
+
+    public static int encode(Vbitmap vbitmap, OutputStream os, Options options) {
+        if (hasNative()) {
+            return native_encodeStream(vbitmap, os, options);
+        }
+        return -1;
+    }
+
+    public static int encode(Vbitmap vbitmap, OutputStream os) {
+        return encode(vbitmap, os, null);
     }
 }

@@ -13,7 +13,7 @@
 /**
 * @file   ymagine.h
 * @addtogroup Ymagine
-* @brief  Ymagine image decodign and processing
+* @brief  Ymagine image decoding and processing
 */
 
 #ifndef _YMAGINE_H
@@ -83,6 +83,7 @@ extern "C" {
 #include "ymagine/format.h"
 #include "ymagine/vformat.h"
 #include "ymagine/seam.h"
+#include "ymagine/design.h"
 #include "ymagine/simple.h"
 
 /**

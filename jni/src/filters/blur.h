@@ -21,7 +21,7 @@ extern "C" {
 
 int
 Ymagine_blurSuperfast(unsigned char *pix,
-		      int w, int h, int pitch, int bpp,
+		      int w, int h, int pitch, int colormode,
 		      int radius, int niter);
 
 

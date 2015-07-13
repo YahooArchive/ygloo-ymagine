@@ -40,6 +40,7 @@ YmagineSNI_Transcode(const char *infile,
   int fdin;
   int fdout;
   int closein = 0;
+  int closeout = 0;
   float sharpen = 0.0f;
   int accuracy = -1;
   int iformat = YMAGINE_IMAGEFORMAT_UNKNOWN;
@@ -86,9 +87,9 @@ YmagineSNI_Transcode(const char *infile,
     ALOGE("failed to open output file \"%s\"\n", infile);
     return rc;
   }
+  closeout = 1;
 
   channelin = YchannelInitFd(fdin, 0);
-
   if (channelin != NULL) {
     iformat = YmagineFormat(channelin);
     if (oformat == YMAGINE_IMAGEFORMAT_UNKNOWN) {
@@ -134,6 +135,13 @@ YmagineSNI_Transcode(const char *infile,
       YchannelRelease(channelout);
     }
     YchannelRelease(channelin);
+  }
+
+  if (closeout) {
+    close(fdout);
+  }
+  if (closein) {
+    close(fdin);
   }
 
   return rc;

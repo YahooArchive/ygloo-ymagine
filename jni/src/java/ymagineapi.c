@@ -21,6 +21,8 @@
 
 #include "ymagine/ymagine.h"
 
+#include "ymagine/ymagine_ymaginejni.h"
+
 #include "ymagine_config.h"
 #include "ymagine_priv.h"
 
@@ -239,11 +241,14 @@ static jfieldID gShader_nativeHandleFieldID = 0;
 static jclass gOptions_clazz = 0;
 static jfieldID gOptions_sharpenFieldID;
 static jfieldID gOptions_rotateFieldID;
+static jfieldID gOptions_blurFieldID;
 static jfieldID gOptions_backgroundColorFieldID;
 static jfieldID gOptions_maxWidthFieldID;
 static jfieldID gOptions_maxHeightFieldID;
 static jfieldID gOptions_shaderFieldID;
 static jfieldID gOptions_scaleTypeFieldID;
+static jfieldID gOptions_adjustModeFieldID;
+static jfieldID gOptions_metaModeFieldID;
 static jfieldID gOptions_outputFormatFieldID;
 static jfieldID gOptions_qualityFieldID;
 static jfieldID gOptions_offsetCropModeFieldID;
@@ -278,6 +283,9 @@ ymagine_init(JNIEnv *_env, const char *classname)
         gOptions_rotateFieldID = (*_env)->GetFieldID(_env,
                                                      gOptions_clazz,
                                                      "rotate", "F");
+        gOptions_blurFieldID = (*_env)->GetFieldID(_env,
+                                                   gOptions_clazz,
+                                                   "blur", "F");
         gOptions_backgroundColorFieldID = (*_env)->GetFieldID(_env,
                                                               gOptions_clazz,
                                                               "backgroundColor", "I");
@@ -293,6 +301,12 @@ ymagine_init(JNIEnv *_env, const char *classname)
         gOptions_scaleTypeFieldID = (*_env)->GetFieldID(_env,
                                                         gOptions_clazz,
                                                         "scaleType", "I");
+        gOptions_adjustModeFieldID = (*_env)->GetFieldID(_env,
+                                                         gOptions_clazz,
+                                                         "adjustMode", "I");
+        gOptions_metaModeFieldID = (*_env)->GetFieldID(_env,
+                                                       gOptions_clazz,
+                                                       "metaMode", "I");
         gOptions_outputFormatFieldID = (*_env)->GetFieldID(_env,
                                                            gOptions_clazz,
                                                            "outputFormat", "I");
@@ -334,11 +348,14 @@ ymagine_init(JNIEnv *_env, const char *classname)
       if ( (gOptions_clazz == 0) ||
            (gOptions_sharpenFieldID == 0) ||
            (gOptions_rotateFieldID == 0) ||
+           (gOptions_blurFieldID == 0) ||
            (gOptions_backgroundColorFieldID == 0) ||
            (gOptions_maxWidthFieldID == 0) ||
            (gOptions_maxHeightFieldID == 0) ||
            (gOptions_shaderFieldID == 0) ||
            (gOptions_scaleTypeFieldID == 0) ||
+           (gOptions_adjustModeFieldID == 0) ||
+           (gOptions_metaModeFieldID == 0) ||
            (gOptions_outputFormatFieldID == 0) ||
            (gOptions_qualityFieldID == 0) ||
            (gOptions_offsetCropModeFieldID == 0) ||
@@ -581,6 +598,59 @@ native_vbitmapDecodeStream(JNIEnv* _env, jobject object, jlong lhandle,
   return (jint) rc;
 }
 
+static jint JNICALL
+native_vbitmapDecodeYUV(JNIEnv* _env, jobject object, jlong lhandle,
+                        jint width, jint height, jint stride,
+                        jbyteArray dataObject)
+{
+  Vbitmap *vbitmap;
+  int rc = YMAGINE_ERROR;
+  jbyte *data;
+  jsize datalen;
+  int owidth, oheight;
+  int scalemode = YMAGINE_SCALE_HALF_QUICK;
+
+  vbitmap = (Vbitmap*) convertJLongToPointer(lhandle);
+  if (vbitmap == NULL) {
+    return rc;
+  }
+
+  if (dataObject == NULL) {
+    return rc;
+  }
+
+  datalen = (*_env)->GetArrayLength(_env, dataObject);
+  if (datalen <= 0 || stride < width || datalen < height * stride) {
+    /* Invalid byte array */
+    return rc;
+  }
+
+  data = (jbyte *) (*_env)->GetByteArrayElements(_env, dataObject, NULL);
+  if (data == NULL) {
+    return rc;
+  }
+
+  if (scalemode == YMAGINE_SCALE_HALF_QUICK) {
+    owidth = width / 2;
+    oheight = height / 2;
+  } else {
+    owidth = width;
+    oheight = height;
+  }
+
+  /* Resize bitmap to match output size */
+  if (VbitmapResize(vbitmap, owidth, oheight) == YMAGINE_OK) {
+    VbitmapLock(vbitmap);
+    VbitmapWriteNV21Buffer(vbitmap, (const unsigned char*)data, width, height, scalemode);
+    VbitmapUnlock(vbitmap);
+
+    rc = YMAGINE_OK;
+  }
+  (*_env)->ReleaseByteArrayElements(_env, dataObject, data, 0 );
+
+  return (jint) rc;
+}
+
 /* Dalvik VM type signatures */
 static JNINativeMethod vbitmap_methods[] = {
     {   "native_destructor",
@@ -614,6 +684,10 @@ static JNINativeMethod vbitmap_methods[] = {
     {   "native_decodeStream",
         "(JLjava/io/InputStream;II)I",
         (void*) native_vbitmapDecodeStream
+    },
+    {   "native_decodeYUV",
+        "(JIII[B)I",
+        (void*) native_vbitmapDecodeYUV
     }
 };
 
@@ -708,6 +782,12 @@ static YmagineFormatOptions* convertOptions(JNIEnv* _env, jobject joptions) {
                                   (*_env)->GetFloatField(_env, joptions, gOptions_sharpenFieldID));
   YmagineFormatOptions_setRotate(options,
                                  (*_env)->GetFloatField(_env, joptions, gOptions_rotateFieldID));
+  YmagineFormatOptions_setAdjust(options,
+                                 (*_env)->GetIntField(_env, joptions, gOptions_adjustModeFieldID));
+  YmagineFormatOptions_setMetaMode(options,
+                               (*_env)->GetIntField(_env, joptions, gOptions_metaModeFieldID));
+  YmagineFormatOptions_setBlur(options,
+                                 (*_env)->GetFloatField(_env, joptions, gOptions_blurFieldID));
   YmagineFormatOptions_setBackgroundColor(options,
                                           (*_env)->GetIntField(_env, joptions, gOptions_backgroundColorFieldID));
   YmagineFormatOptions_setResize(options,
@@ -777,6 +857,41 @@ ymagine_jni_transcodeStream(JNIEnv* _env, jobject object,
   return rc;
 }
 
+static jint JNICALL
+ymagine_jni_encodeStream(JNIEnv* _env, jobject object,
+                         jobject vbitmapobj, jobject streamout, jobject joptions)
+{
+  Vbitmap *vbitmap;
+  int rc = YMAGINE_ERROR;
+  Ychannel *channel;
+
+  if (streamout == NULL) {
+    return rc;
+  }
+
+  vbitmap = YmagineJNI_VbitmapRetain(_env, vbitmapobj);
+  if (vbitmap == NULL) {
+    return rc;
+  }
+
+  channel = YchannelInitJavaOutputStream(_env, streamout);
+  if (channel != NULL) {
+    YmagineFormatOptions *options = NULL;
+
+    options = convertOptions(_env, joptions);
+    if (options != NULL) {
+      rc = YmagineEncode(vbitmap, channel,NULL);
+      YmagineFormatOptions_Release(options);
+    }
+
+    YchannelRelease(channel);
+  }
+
+  YmagineJNI_VbitmapRelease(_env, vbitmapobj);
+
+  return (jint) rc;
+}
+
 /* Dalvik VM type signatures */
 static JNINativeMethod ymagine_methods[] = {
   {   "native_version",
@@ -797,46 +912,100 @@ static JNINativeMethod ymagine_methods[] = {
   }
 };
 
-int register_Ymagine(JNIEnv *_env, const char *classPathName)
+int register_Ymagine(JNIEnv *_env, const char *ymagineClassPathName)
 {
   int rc;
   int l;
   char buf[256];
   JNINativeMethod options_methods[1];
+  char *vbitmapClassPathName = "com/yahoo/ymagine/Vbitmap";
 
-  if (classPathName == NULL) {
+  if (ymagineClassPathName == NULL) {
     return JNI_FALSE;
   }
 
-  l = strlen(classPathName);
+  l = strlen(ymagineClassPathName);
   if (l > 128) {
     return JNI_FALSE;
   }
 
-  rc = ymagine_init(_env, classPathName);
+  rc = ymagine_init(_env, ymagineClassPathName);
   if (rc <= 0) {
     return JNI_FALSE;
   }
 
-  rc = jniutils_registerNativeMethods(_env, classPathName,
+  rc = jniutils_registerNativeMethods(_env, ymagineClassPathName,
                                       ymagine_methods, NELEM(ymagine_methods));
   if (rc != JNI_TRUE) {
     return JNI_FALSE;
   }
 
-  snprintf(buf, sizeof(buf), "(Ljava/io/InputStream;Ljava/io/OutputStream;L%s$Options;)I", classPathName);
+  snprintf(buf, sizeof(buf), "(Ljava/io/InputStream;Ljava/io/OutputStream;L%s$Options;)I", ymagineClassPathName);
 
   options_methods[0].name = "native_transcodeStream";
   options_methods[0].signature = buf;
   options_methods[0].fnPtr = (void*) ymagine_jni_transcodeStream;
 
-  rc = jniutils_registerNativeMethods(_env, classPathName,
+  rc = jniutils_registerNativeMethods(_env, ymagineClassPathName,
                                       options_methods, 1);
   if (rc != JNI_TRUE) {
     return JNI_FALSE;
   }
 
+  snprintf(buf, sizeof(buf), "(L%s;Ljava/io/OutputStream;L%s$Options;)I", vbitmapClassPathName, ymagineClassPathName);
+
+  options_methods[0].name = "native_encodeStream";
+  options_methods[0].signature = buf;
+  options_methods[0].fnPtr = (void*) ymagine_jni_encodeStream;
+
+  rc = jniutils_registerNativeMethods(_env, ymagineClassPathName,
+                                      options_methods, 1);
+  if (rc != JNI_TRUE) {
+    return JNI_FALSE;
+  }
+
+
   return JNI_TRUE;
+}
+
+/* Public helper to extract native Vbitmap handle from Vbitmap Java object */
+Vbitmap*
+YmagineJNI_VbitmapRetain(JNIEnv* _env, jobject vbitmapobj)
+{
+  jlong lhandle = (jlong) 0;
+  Vbitmap *vbitmap = NULL;
+
+  if (vbitmapobj != NULL) {
+    lhandle = (*_env)->CallLongMethod(_env, vbitmapobj, gVbitmap_retainMethodID);
+    if ((*_env)->ExceptionCheck(_env)) {
+      /* method threw an exception, abort */
+      /* (*env)->ExceptionDescribe(env); */
+      (*_env)->ExceptionClear(_env);
+      lhandle = (jlong) 0;
+    }
+
+    vbitmap = (Vbitmap*) convertJLongToPointer(lhandle);
+  }
+
+  return vbitmap;
+}
+
+Vbitmap*
+YmagineJNI_VbitmapRelease(JNIEnv* _env, jobject vbitmapobj)
+{
+  jlong lhandle = (jlong) 0;
+
+  if (vbitmapobj != NULL) {
+    lhandle = (*_env)->CallLongMethod(_env, vbitmapobj, gVbitmap_releaseMethodID);
+    if ((*_env)->ExceptionCheck(_env)) {
+      /* method threw an exception, abort */
+      /* (*env)->ExceptionDescribe(env); */
+      (*_env)->ExceptionClear(_env);
+      lhandle = (jlong) 0;
+    }
+  }
+
+  return (Vbitmap*) convertJLongToPointer(lhandle);
 }
 
 /*

@@ -35,6 +35,7 @@ public class Vbitmap {
     private native int native_getHeight(long nativeHandle);
     private native int native_decodeFile(long nativeHandle, String filename, int maxWidth, int maxHeight);
     private native int native_decodeStream(long nativeHandle, InputStream inStream, int maxWidth, int maxHeight);
+    private native int native_decodeYUV(long nativeHandle, int width, int height, int stride, byte[] data);
 
    /**
     * @noinspection UnusedDeclaration
@@ -136,6 +137,14 @@ public class Vbitmap {
         }
 
         return native_decodeStream(mNativeHandle, inStream, maxWidth, maxHeight);
+    }
+
+    public int decodeYUV(int width, int height, int stride, byte[] data) {
+        if (mNativeHandle == 0L) {
+            return -1;
+        }
+
+        return native_decodeYUV(mNativeHandle, width, height, stride, data);
     }
 
     public void recycle() {

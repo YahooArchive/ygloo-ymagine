@@ -18,28 +18,38 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public class LibraryLoader {
-    public static final String LOG_TAG = LibraryLoader.class.getName();
+    public static final String LOG_TAG = "LibraryLoader";
     public static final String CUSTOM_LIB_DIR = "lib";
+    public static final String SYSTEM_LIB_DIR = "lib";
+    public static final String SYSTEM_LIB64_DIR = "lib64";
+    public static final String VENDOR_ROOT_DIR = "vendor";
+    public static final String VENDOR_LIB_DIR = "lib";
+    public static final String VENDOR_LIB64_DIR = "lib64";
+    public static final long UPDATE_EPSILON_MS = 60 * 1000;
 
     private static long sUpdatedTime = 0;
     private static String sVersion = null;
 
-    public static void loadLibraries(Context context, boolean fromAssets, String[] libraries)
-            throws UnsatisfiedLinkError {
+    public static void loadLibraries(Context context, boolean fromAssets, boolean checkTimestamp, String[] libraries)
+            throws UnsatisfiedLinkError, IllegalArgumentException {
         if (context == null) {
-            throw new UnsatisfiedLinkError("Null context");
+            throw new IllegalArgumentException("Null context");
         }
         Context appContext = context.getApplicationContext();
 
-        getPackageInfo(appContext);
-
-        if (!fromAssets && trySystemLibraries(appContext, false, libraries)) {
-            if (!trySystemLibraries(appContext, true, libraries)) {
+        if (!fromAssets && trySystemLibraries(appContext, false, checkTimestamp, libraries)) {
+            if (!trySystemLibraries(appContext, true, checkTimestamp, libraries)) {
                 throw new UnsatisfiedLinkError("Error loading libraries from APK");
             }
         } else {
+            getPackageInfo(appContext);
             unpackAndLoadLibraries(appContext, fromAssets, libraries);
         }
+    }
+
+    public static void loadLibraries(Context context, boolean fromAssets, String[] libraries)
+            throws UnsatisfiedLinkError, IllegalArgumentException {
+        loadLibraries(context, fromAssets, true, libraries);
     }
 
     private static void getPackageInfo(Context appContext) {
@@ -56,7 +66,7 @@ public class LibraryLoader {
                 }
                 sVersion = Integer.toString(info.versionCode) + "-" + Long.toString(sUpdatedTime);
             } catch (PackageManager.NameNotFoundException e) {
-                Log.e(LOG_TAG, "Package information not found.");
+                Log.e(LOG_TAG, "Package information not found.", e);
             }
         }
         if (sVersion == null) {
@@ -64,31 +74,55 @@ public class LibraryLoader {
         }
     }
 
-    private static boolean trySystemLibraries(Context appContext, boolean load, String[] libraries)
+    private static boolean trySystemLibraries(Context appContext, boolean load, boolean checkTimestamp, String[] libraries)
             throws UnsatisfiedLinkError {
         String libRoot = appContext.getApplicationInfo().nativeLibraryDir;
-        String preinstallRoot = Environment.getRootDirectory() + "/system/vendor/lib";
+        File systemRootFile = android.os.Environment.getRootDirectory();
+        File vendorRootFile = new File(systemRootFile, VENDOR_ROOT_DIR);
+        /* Search path for shared libraries, as File objects */
+        File preinstallRoot0 = new File(vendorRootFile, VENDOR_LIB64_DIR);
+        File preinstallRoot1 = new File(vendorRootFile, VENDOR_LIB_DIR);
+        File preinstallRoot2 = new File(systemRootFile, SYSTEM_LIB64_DIR);
+        File preinstallRoot3 = new File(systemRootFile, SYSTEM_LIB_DIR);
+
         for (String libName : libraries) {
             String libTail = System.mapLibraryName(libName);
 
             File libFile = new File(libRoot, libTail);
             if (!libFile.exists()) {
                 // Perhaps we are a pre-installed app.
-                libFile = new File(preinstallRoot, libTail);
+                libFile = new File(preinstallRoot0, libTail);
+                if (!libFile.exists()) {
+                    libFile = new File(preinstallRoot1, libTail);
+                    if (!libFile.exists()) {
+                        libFile = new File(preinstallRoot2, libTail);
+                        if (!libFile.exists()) {
+                            libFile = new File(preinstallRoot3, libTail);
+                        }
+                    }
+                }
             }
             if (load) {
                 if (!libFile.exists()) {
+                    Log.e(LOG_TAG, "Missing library " + libFile.getAbsolutePath());
                     throw new UnsatisfiedLinkError("Missing library: " + libName);
                 }
+                Log.i(LOG_TAG, "Loading library " + libFile.getAbsolutePath());
                 System.load(libFile.getAbsolutePath());
             } else {
                 if (!libFile.exists()) {
+                    Log.e(LOG_TAG, "Can't find library " + libName);
                     return false;
                 }
-                if (libFile.lastModified() < sUpdatedTime) {
-                    // The system didn't correctly update the .so files.
-                    return false;
+                if (checkTimestamp) {
+                    getPackageInfo(appContext);
+                    if (libFile.lastModified() + UPDATE_EPSILON_MS < sUpdatedTime) {
+                        // The system didn't correctly update the .so files.
+                        Log.e(LOG_TAG, "Not up to date library " + libFile.getAbsolutePath());
+                        return false;
+                    }
                 }
+                Log.i(LOG_TAG, "Found library " + libFile.getAbsolutePath());
             }
         }
         return true;
@@ -188,10 +222,10 @@ public class LibraryLoader {
                     }
                 } finally {
                     if (is != null) {
-                        try { is.close(); } catch (IOException e) { }
+                        try { is.close(); } catch (IOException e) { /* Do nothing */ }
                     }
                     if (os != null) {
-                        try { os.close(); } catch (IOException e) { }
+                        try { os.close(); } catch (IOException e) { /* Do nothing */ }
                     }
                 }
 
@@ -213,7 +247,7 @@ public class LibraryLoader {
         }
 
         if (zipFile != null) {
-            try { zipFile.close(); } catch (IOException e) { }
+            try { zipFile.close(); } catch (IOException e) { /* Do nothing */ }
         }
     }
 

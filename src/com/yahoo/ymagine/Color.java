@@ -12,8 +12,6 @@
 
 package com.yahoo.ymagine;
 
-import java.io.InputStream;
-
 public class Color {
     /**
      * Return a color-int from alpha, red, green, blue components.

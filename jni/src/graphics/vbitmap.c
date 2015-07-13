@@ -41,6 +41,8 @@ int colormode;
 /* Panoramic support */
 VbitmapXmp xmp;
 
+int orientation;
+
 /* Region is used as a pointer since its existence can be
  a check if the caller designated an active region */
 Vrect *region;
@@ -135,6 +137,7 @@ VbitmapInit()
   vbitmap->colormode = VBITMAP_COLOR_RGBA;
 
   memset(&(vbitmap->xmp), 0, sizeof(VbitmapXmp));
+  vbitmap->orientation = VBITMAP_ORIENTATION_UNDEFINED;
 
   vbitmap->region = NULL;
 
@@ -184,7 +187,7 @@ VbitmapInitAndroid(JNIEnv *_env, jobject jbitmap)
     }
 
     vbitmap->bitmaptype = VBITMAP_ANDROID;
-    vbitmap->colormode = VBITMAP_COLOR_RGBA;
+    vbitmap->colormode = VBITMAP_COLOR_rgbA;
     vbitmap->jvm = jvm;
     vbitmap->jbitmap = NULL;
     vbitmap->jkeepref = 0;
@@ -594,6 +597,16 @@ colorBpp(int colormode)
     return 1;
   case VBITMAP_COLOR_YUV:
     return 3;
+  case VBITMAP_COLOR_CMYK:
+    return 4;
+  case VBITMAP_COLOR_rgbA:
+    return 4;
+  case VBITMAP_COLOR_YCbCr:
+    return 3;
+  case VBITMAP_COLOR_ARGB:
+    return 4;
+  case VBITMAP_COLOR_Argb:
+    return 4;
   default:
     return 0;
   }
@@ -740,6 +753,26 @@ VbitmapGetXMP(Vbitmap *vbitmap)
   return bitmapxmp;
 }
 
+int
+VbitmapGetOrientation(Vbitmap *vbitmap) {
+  if (vbitmap == NULL) {
+    return 0;
+  }
+
+  return vbitmap->orientation;
+}
+
+int
+VbitmapSetOrientation(Vbitmap *vbitmap, int orientation) {
+  if (vbitmap == NULL) {
+    return YMAGINE_ERROR;
+  }
+
+  vbitmap->orientation = orientation;
+
+  return YMAGINE_OK;
+}
+
 YINLINE YOPTIMIZE_SPEED static double
 calculateError(int width, int height,
                unsigned char* buffer1, unsigned char* buffer2,
@@ -749,6 +782,7 @@ calculateError(int width, int height,
   int x;
   int y;
   int k;
+  int dist;
   double error = 0.0;
 
   if (width <= 0 || height <= 0) {
@@ -759,10 +793,18 @@ calculateError(int width, int height,
     unsigned char* v1y = buffer1 + y * pitch1;
     unsigned char* v2y = buffer2 + y * pitch2;
     for (x = 0; x < width; x++) {
+      dist = 0;
       for (k = 0; k < bpp; k++) {
         int d = ((int) v1y[k]) - ((int) v2y[k]);
-        error += d * d;
+        dist += d * d;
       }
+      /* Scale distance with alpha difference. Totally transparent pixels
+         are visually identical no matter what their RGB components are */
+      if (bpp >= 4) {
+        dist = (dist * MAX(v1y[3], v2y[3])) / 0xff;
+      }
+      error += dist;
+
       v1y += bpp1;
       v2y += bpp2;
     }
@@ -817,7 +859,7 @@ VbitmapComputePSNR(Vbitmap *vbitmap, Vbitmap *reference)
         } else if (bpp1 == 4 && bpp2 == 4) {
           error = calculateError(width, height, v1buffer, v2buffer, 4, 4, v1pitch, v2pitch, 4);
         } else {
-          int bpp = bpp1 < bpp2 ? bpp1 : bpp2;
+          int bpp = MIN(bpp1, bpp2);
           error = calculateError(width, height, v1buffer, v2buffer, bpp1, bpp2, v1pitch, v2pitch, bpp);
         }
       }

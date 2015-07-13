@@ -28,6 +28,58 @@
 #define O_BINARY 0
 #endif
 
+/* Create a directory, creating all parents as needed */
+static int mkDir(const char *name)
+{
+  char fullpath[PATH_MAX];
+  char currpath[PATH_MAX];
+  char *pathtoken;
+  struct stat st;
+  int ndirs = 0;
+  int ret;
+  int l;
+
+  if (name == NULL || name[0] == '\0') {
+    return ndirs;
+  }
+
+  l = strlen(name);
+  if (l >= PATH_MAX) {
+    return -1;
+  }
+
+  // reset path
+  strcpy(fullpath, name);
+  strcpy(currpath, "");
+  // create the pieces of the path along the way
+  pathtoken = strtok(fullpath, "/");
+  if (fullpath[0] == '/') {
+    // prepend / if needed
+    strcat(currpath, "/");
+  }
+  while (pathtoken != NULL) {
+    if(strlen(currpath) + strlen(pathtoken) + 2/*NUL and slash*/ > PATH_MAX) {
+      /* Path is too long */
+      return -1;
+    }
+
+    strcat(currpath, pathtoken);
+    strcat(currpath, "/");
+    if (stat(currpath, &st) != 0) {
+      ret = mkdir(currpath, 0777);
+      if(ret < 0) {
+        /* Fail to create directory currpath */
+        // fprintf(stderr, "mkdir failed for %s\n", currpath);
+        return -1;
+      }
+      ndirs++;
+    }
+    pathtoken = strtok(NULL, "/");
+  }
+
+  return ndirs;
+}
+
 typedef struct {
   int srcwidth;
   int srcheight;
@@ -75,9 +127,9 @@ static void testTransformer() {
   /* test transformer outputs expected number of lines */
   const int srch = 300;
   const int srcw = 100;
-  const int bpp = 3;
-  const int pitch = srcw*bpp;
-  unsigned char src[pitch];
+  int bpp;
+  int pitch;
+  unsigned char *src;
   const int srcx = 10;
   const int srcy = 20;
   const int regionw = srcw - srcx;
@@ -88,6 +140,18 @@ static void testTransformer() {
   int k;
   twriterdata writedata;
   Transformer* transformer;
+
+  return;
+
+  /* Initialize src to avoid warning about uninitialized value */
+  bpp = 4;
+  pitch = srcw * bpp;
+  src = Ymem_malloc(pitch);
+  if (src == NULL) {
+    printf("error: failed to allocate %d bytes for testTransformer\n", pitch);
+    exit(1);
+  }
+  memset(src, 0, pitch);
 
   for (k = 1; k <= destheightcap; k++) {
     int destheight = k;
@@ -113,10 +177,13 @@ static void testTransformer() {
     TransformerRelease(transformer);
     transformer = NULL;
   }
+
+  Ymem_free(src);
 }
 
 static void testMergeLine() {
   const int width = 100;
+  const int cmode = VBITMAP_COLOR_RGB;
   const int bpp = 3;
   const int destvalue = 100;
   const int srcvalue = 50;
@@ -126,13 +193,16 @@ static void testMergeLine() {
   int j;
   unsigned char dest[width * bpp];
   unsigned char src[width * bpp];
+
   memset(dest, destvalue, width * bpp);
   memset(src, srcvalue, width * bpp);
 
-  YTEST_ASSERT_EQ(YmagineMergeLine(dest, bpp, destweight, src, bpp, srcweight, width), YMAGINE_OK);
+  YTEST_ASSERT_EQ(YmagineMergeLine(dest, cmode, destweight,
+                                   src, cmode, srcweight,
+                                   width), YMAGINE_OK);
   for (i = 0; i < width; i++) {
     for (j = 0; j < bpp; j++) {
-      YTEST_ASSERT_EQ(dest[i*bpp + j], (char)((destvalue * destweight + srcvalue * srcweight) / (destweight + srcweight)));
+      YTEST_ASSERT_EQ(dest[i*bpp + j], (unsigned char)((destvalue * destweight + srcvalue * srcweight) / (destweight + srcweight)));
     }
   }
 }
@@ -299,10 +369,128 @@ static const char* Ymagine_cropModeStr(int cropmode) {
 }
 #endif
 
-#define REF_FOLDER "ref"
-#define TEMP_FOLDER "temp"
-#define BASEDIR "./test/ymagine-data/transcode"
-#define TRANSCODE_TEST_COUNT 71
+static const char* REF_FOLDER = "ref";
+static const char* RUN_FOLDER = "run";
+static const char* BASEDIR = "./test/ymagine-data/transcode";
+
+static const char* TEMP_FOLDER = "./out/test/ymagine";
+static const char* REF_RELATIVE_PATH = "../../..";
+
+#define TR_regionpngname   "base_region.png"
+#define TR_regionjpgname   "base_region.jpg"
+#define TR_regionwebpname  "base_region.webp"
+#define TR_cropjpgname     "base_crop.jpg"        /* 400x400 */
+#define TR_jpgname         "base.jpg"             /* 1350x900 */
+#define TR_pngname         "base.png"             /* 1473x1854 */
+#define TR_webpname        "base.webp"            /* 1024x772 */
+#define TR_name            "ref-base"
+
+static const tinfo transform_infos[] = {
+  /* crop contract validation for scalemode fit */
+
+  /* crop region wider and shorter */
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
+
+  /* crop region taller and narrower */
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
+
+  /* crop region taller and wider */
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
+
+  /* crop region shorter and narrower */
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
+  {TR_regionpngname, TR_regionpngname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
+  {TR_regionjpgname, TR_regionjpgname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
+  {TR_regionwebpname, TR_regionwebpname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
+
+  /* crop, no width height limit */
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_CROP, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+
+  /* crop, scale down */
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 100, 100, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 100, 100, YMAGINE_SCALE_CROP, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 100, 100, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+
+  /* crop, no scale */
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_CROP, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+
+  /* crop, scale up */
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, 300, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, 300, YMAGINE_SCALE_CROP, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, 300, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
+
+  /* crop, relative no scale */
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_LETTERBOX, CROP_MODE_RELATIVE, {25, 25, 50, 50}},
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_CROP, CROP_MODE_RELATIVE, {25, 25, 50, 50}},
+  {TR_name, TR_cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_FIT, CROP_MODE_RELATIVE, {25, 25, 50, 50}},
+
+  /* trascode, scale down */
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_NONE, {0, 0, 0, 0}},
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, 600, 600, YMAGINE_SCALE_CROP, CROP_MODE_NONE, {0, 0, 0, 0}},
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, 600, 600, YMAGINE_SCALE_FIT, CROP_MODE_NONE, {0, 0, 0, 0}},
+
+  /* trascode, no scale */
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_LETTERBOX, CROP_MODE_NONE, {0, 0, 0, 0}},
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_CROP, CROP_MODE_NONE, {0, 0, 0, 0}},
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_NONE, {0, 0, 0, 0}},
+
+  /* trascode, specify width, use default height */
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, -1, YMAGINE_SCALE_LETTERBOX, CROP_MODE_NONE, {0, 0, 0, 0}},
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, -1, YMAGINE_SCALE_CROP, CROP_MODE_NONE, {0, 0, 0, 0}},
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, -1, YMAGINE_SCALE_FIT, CROP_MODE_NONE, {0, 0, 0, 0}},
+
+  /* trascode, scale up */
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, 2000, 2000, YMAGINE_SCALE_LETTERBOX, CROP_MODE_NONE, {0, 0, 0, 0}},
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, 2000, 2000, YMAGINE_SCALE_CROP, CROP_MODE_NONE, {0, 0, 0, 0}},
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_JPEG, 2000, 2000, YMAGINE_SCALE_FIT, CROP_MODE_NONE, {0, 0, 0, 0}},
+
+  /* decode from jpeg, encode to png, webp (already have many jpeg to jpeg case above) */
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_PNG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
+  {TR_name, TR_jpgname, YMAGINE_IMAGEFORMAT_WEBP, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
+
+  /* decode from png, encode to png, webp, jpeg */
+  {TR_name, TR_pngname, YMAGINE_IMAGEFORMAT_PNG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
+  {TR_name, TR_pngname, YMAGINE_IMAGEFORMAT_WEBP, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
+  {TR_name, TR_pngname, YMAGINE_IMAGEFORMAT_JPEG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
+
+  /* decode from webp, encode to png, webp, jpeg */
+  {TR_name, TR_webpname, YMAGINE_IMAGEFORMAT_PNG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
+  {TR_name, TR_webpname, YMAGINE_IMAGEFORMAT_WEBP, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
+  {TR_name, TR_webpname, YMAGINE_IMAGEFORMAT_JPEG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
+};
 
 static void sprintInfoToCommand(char* buffer, int buffersize, tinfo* info) {
   if (info->cropmode == CROP_MODE_ABSOLUTE) {
@@ -329,123 +517,10 @@ static void sprintInfoToCommand(char* buffer, int buffersize, tinfo* info) {
 
 static void testTranscode(YBOOL htmlmode, const char* basefolder,
                           int startindex, int endindex) {
-  char basedir[500];
-  char outdir[500];
-  char refdir[500];
-  const char* regionpngname = "base_region.png";
-  const char* regionjpgname = "base_region.jpg";
-  const char* regionwebpname = "base_region.webp";
-  const char* cropjpgname = "base_crop.jpg"; /* 400x400 */
-  const char* jpgname = "base.jpg"; /* 1350x900 */
-  const char* pngname = "base.png"; /* 1473x1854 */
-  const char* webpname = "base.webp"; /* 1024x772 */
-  const char* name = "ref-base";
-  tinfo infos[TRANSCODE_TEST_COUNT] = {
-    /* crop contract validation for scalemode fit */
-
-    /* crop region wider and shorter */
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, 50, 250, 50}},
-
-    /* crop region taller and narrower */
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, -50, 50, 250}},
-
-    /* crop region taller and wider */
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {-50, -50, 250, 250}},
-
-    /* crop region shorter and narrower */
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
-    {regionpngname, regionpngname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
-    {regionjpgname, regionjpgname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_PNG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
-    {regionwebpname, regionwebpname, YMAGINE_IMAGEFORMAT_WEBP, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {50, 50, 50, 50}},
-
-    /* crop, no width height limit */
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_CROP, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-
-    /* crop, scale down */
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 100, 100, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 100, 100, YMAGINE_SCALE_CROP, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 100, 100, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-
-    /* crop, no scale */
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_CROP, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-
-    /* crop, scale up */
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, 300, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, 300, YMAGINE_SCALE_CROP, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, 300, YMAGINE_SCALE_FIT, CROP_MODE_ABSOLUTE, {100, 100, 200, 200}},
-
-    /* crop, relative no scale */
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_LETTERBOX, CROP_MODE_RELATIVE, {25, 25, 50, 50}},
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_CROP, CROP_MODE_RELATIVE, {25, 25, 50, 50}},
-    {name, cropjpgname, YMAGINE_IMAGEFORMAT_JPEG, 200, 200, YMAGINE_SCALE_FIT, CROP_MODE_RELATIVE, {25, 25, 50, 50}},
-
-    /* trascode, scale down */
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_NONE, {0, 0, 0, 0}},
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, 600, 600, YMAGINE_SCALE_CROP, CROP_MODE_NONE, {0, 0, 0, 0}},
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, 600, 600, YMAGINE_SCALE_FIT, CROP_MODE_NONE, {0, 0, 0, 0}},
-
-    /* trascode, no scale */
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_LETTERBOX, CROP_MODE_NONE, {0, 0, 0, 0}},
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_CROP, CROP_MODE_NONE, {0, 0, 0, 0}},
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, -1, -1, YMAGINE_SCALE_FIT, CROP_MODE_NONE, {0, 0, 0, 0}},
-
-    /* trascode, specify width, use default height */
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, -1, YMAGINE_SCALE_LETTERBOX, CROP_MODE_NONE, {0, 0, 0, 0}},
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, -1, YMAGINE_SCALE_CROP, CROP_MODE_NONE, {0, 0, 0, 0}},
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, 300, -1, YMAGINE_SCALE_FIT, CROP_MODE_NONE, {0, 0, 0, 0}},
-
-    /* trascode, scale up */
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, 2000, 2000, YMAGINE_SCALE_LETTERBOX, CROP_MODE_NONE, {0, 0, 0, 0}},
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, 2000, 2000, YMAGINE_SCALE_CROP, CROP_MODE_NONE, {0, 0, 0, 0}},
-    {name, jpgname, YMAGINE_IMAGEFORMAT_JPEG, 2000, 2000, YMAGINE_SCALE_FIT, CROP_MODE_NONE, {0, 0, 0, 0}},
-
-    /* decode from jpeg, encode to png, webp (already have many jpeg to jpeg case above) */
-    {name, jpgname, YMAGINE_IMAGEFORMAT_PNG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
-    {name, jpgname, YMAGINE_IMAGEFORMAT_WEBP, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
-
-    /* decode from png, encode to png, webp, jpeg */
-    {name, pngname, YMAGINE_IMAGEFORMAT_PNG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
-    {name, pngname, YMAGINE_IMAGEFORMAT_WEBP, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
-    {name, pngname, YMAGINE_IMAGEFORMAT_JPEG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
-
-    /* decode from webp, encode to png, webp, jpeg */
-    {name, webpname, YMAGINE_IMAGEFORMAT_PNG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
-    {name, webpname, YMAGINE_IMAGEFORMAT_WEBP, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
-    {name, webpname, YMAGINE_IMAGEFORMAT_JPEG, 600, 600, YMAGINE_SCALE_LETTERBOX, CROP_MODE_ABSOLUTE, {100, 150, 600, 600}},
-  };
+  char basedir[PATH_MAX];
+  char outdir[PATH_MAX];
+  char rundir[PATH_MAX];
+  char refdir[PATH_MAX];
   int i;
   int fdin;
   int fdout;
@@ -481,11 +556,22 @@ static void testTranscode(YBOOL htmlmode, const char* basefolder,
   if (basefolder == NULL) {
     snprintf(basedir, sizeof(basedir), "%s", BASEDIR);
     snprintf(refdir, sizeof(refdir), "%s/%s", BASEDIR, REF_FOLDER);
-    snprintf(outdir, sizeof(outdir), "%s/%s", BASEDIR, TEMP_FOLDER);
   } else {
     snprintf(basedir, sizeof(basedir), "%s", basefolder);
     snprintf(refdir, sizeof(refdir), "%s/%s", basefolder, REF_FOLDER);
-    snprintf(outdir, sizeof(outdir), "%s/%s", basefolder, TEMP_FOLDER);
+  }
+  snprintf(outdir, sizeof(outdir), "%s", TEMP_FOLDER);
+  snprintf(rundir, sizeof(rundir), "%s/%s", TEMP_FOLDER, RUN_FOLDER);
+
+  if (mkDir(outdir) < 0) {
+    fprintf(stdout, "error: failed to create output directory %s\n", outdir);
+    fflush(stdout);
+    exit(1);
+  }
+  if (mkDir(rundir) < 0) {
+    fprintf(stdout, "error: failed to create output directory %s\n", rundir);
+    fflush(stdout);
+    exit(1);
   }
 
   if (htmlmode) {
@@ -505,7 +591,7 @@ static void testTranscode(YBOOL htmlmode, const char* basefolder,
 
   for (i = startindex; i < endindex; i++) {
     rc = YMAGINE_ERROR;
-    info = infos[i];
+    info = transform_infos[i];
     snprintf(basepath, sizeof(basepath), "%s/%s", basedir, info.inname);
     fdin = open(basepath, O_RDONLY | O_BINARY);
     if (fdin >= 0) {
@@ -533,13 +619,13 @@ static void testTranscode(YBOOL htmlmode, const char* basefolder,
                    Ymagine_scaleModeStr(info.scalemode), info.maxwidth, info.maxheight,
                    info.croprect.x, info.croprect.y, info.croprect.width,
                    info.croprect.height, outformat);
-          snprintf(outpath, 200, "%s/%s", outdir, outname);
+          snprintf(outpath, 200, "%s/%s", rundir, outname);
         } else {
           snprintf(outname, 200, "%s-%s-%s-%s-%d-%d.%s",
                    info.name, decodecolormodestr, informat,
                    Ymagine_scaleModeStr(info.scalemode), info.maxwidth, info.maxheight,
                    outformat);
-          snprintf(outpath, 200, "%s/%s", outdir, outname);
+          snprintf(outpath, 200, "%s/%s", rundir, outname);
         }
 
         fdout = open(outpath, O_WRONLY | O_CREAT | O_BINARY | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
@@ -636,7 +722,7 @@ static void testTranscode(YBOOL htmlmode, const char* basefolder,
     }
 
     if (rc == YMAGINE_OK) {
-      snprintf(psnr0path, 200, "%s/%s", outdir, outname);
+      snprintf(psnr0path, 200, "%s/%s", rundir, outname);
       fdpsnr0 = open(psnr0path, O_RDONLY | O_BINARY);
       if (fdpsnr0 >= 0) {
         channelpsnr0 = YchannelInitFd(fdpsnr0, 0);
@@ -689,9 +775,9 @@ static void testTranscode(YBOOL htmlmode, const char* basefolder,
                         snprintf(srcrelative, sizeof(srcrelative), "../%s", info.inname);
                         snprintf(psnrstr, sizeof(psnrstr), "%f", psnr);
                         snprintf(refsize, sizeof(refsize), "%dx%d", VbitmapWidth(vbitmapref), VbitmapHeight(vbitmapref));
-                        snprintf(refpath, sizeof(refpath), "../" REF_FOLDER "/%s", outname);
+                        snprintf(refpath, sizeof(refpath), "%s/%s/%s/%s", REF_RELATIVE_PATH, BASEDIR, REF_FOLDER, outname);
                         snprintf(outsize, sizeof(outsize), "%dx%d", VbitmapWidth(vbitmap), VbitmapHeight(vbitmap));
-                        snprintf(outpath, sizeof(outpath), "../" TEMP_FOLDER "/%s", outname);
+                        snprintf(outpath, sizeof(outpath), "%s/%s", RUN_FOLDER, outname);
 
                         fdin = open(basepath, O_RDONLY | O_BINARY);
                         if (fdin >= 0) {
@@ -839,11 +925,10 @@ static void testTranscode(YBOOL htmlmode, const char* basefolder,
   }
 }
 
-#undef REF_FOLDER
-#undef TEMP_FOLDER
-#undef BASEDIR
-
 void help() {
+  int ntests;
+
+  ntests = sizeof(transform_infos)/sizeof(transform_infos[0]);
   printf("unit test for ymagine\n"
          "\n"
          "command:\n"
@@ -857,7 +942,7 @@ void help() {
          "argument:\n"
          "-transcode_dir: optional base directory for transcode test. E.g., -transcode_dir ./test/ymagine-data/transcode\n"
          "-no-report: transcode test will fail immediately instead of generating report\n"
-         "-range: index range that transcode test case will run, valid range is 0:%d. E.g., -range 5:50\n", TRANSCODE_TEST_COUNT);
+         "-range: index range that transcode test case will run, valid range is 0:%d. E.g., -range 5:50\n", ntests);
 }
 
 int main(int argc, const char* argv[]) {
@@ -878,9 +963,15 @@ int main(int argc, const char* argv[]) {
   YBOOL htmlreport = YTRUE;
   const char* transcodedir = NULL;
   enum argument arg = ARGUMENT_NONE;
+  int ntests;
   int startindex = 0;
-  int endindex = TRANSCODE_TEST_COUNT;
+  int endindex;
   int i;
+
+  ntests = sizeof(transform_infos)/sizeof(transform_infos[0]);
+
+  startindex = 0;
+  endindex = ntests;
 
   if (argc >= 2) {
     if (strcmp(argv[1], "help") == 0) {
@@ -908,10 +999,8 @@ int main(int argc, const char* argv[]) {
             return 1;
           }
 
-          if (startindex <= 0 || startindex >= TRANSCODE_TEST_COUNT ||
-              endindex > TRANSCODE_TEST_COUNT) {
-            printf("transcode test case index out of accepted range 0:%d\n",
-                   TRANSCODE_TEST_COUNT);
+          if (startindex <= 0 || startindex >= ntests || endindex > ntests) {
+            printf("transcode test case index out of accepted range 0:%d\n", ntests);
             return 1;
           }
 

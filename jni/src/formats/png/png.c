@@ -65,6 +65,12 @@ static unsigned int getInt32(const void *in) {
   return result;
 }
 
+/* Maximal size of the temporary pixel buffer used for decoding */
+static int getWorkingBufferSize()
+{
+  return 2*1024*1024;
+}
+
 /* Parse headers of RIFF container */
 #define PNG_SIGNATURE_SIZE 8
 #define PNG_IHDR_SIZE 21
@@ -126,7 +132,10 @@ static void
 ymagine_png_error(png_structp png_ptr, png_const_charp error_msg)
 {
   cleanup_info *info;
-  
+
+  if (error_msg != NULL) {
+    ALOGE("PNG eerror: %s", error_msg);
+  }
   info = (cleanup_info *) png_get_error_ptr(png_ptr);
   if (info->data) {
     Ymem_free((char *) info->data);
@@ -186,12 +195,6 @@ PNGFini(PNGDec* pPNG)
 }
 
 static int
-PngWriter(Transformer *transformer, void *writerdata, void *line)
-{
-  return YMAGINE_OK;
-}
-
-static int
 PNGDecode(PNGDec* pSrc, Vbitmap *vbitmap,
           YmagineFormatOptions *options)
 {
@@ -215,6 +218,7 @@ PNGDecode(PNGDec* pSrc, Vbitmap *vbitmap,
   cleanup_info cleanup;
   unsigned char *data = NULL;
   float sharpen = 0.0f;
+  PixelShader *shader = NULL;
 
   if (options == NULL) {
     /* Options argument is mandatory */
@@ -237,8 +241,10 @@ PNGDecode(PNGDec* pSrc, Vbitmap *vbitmap,
     return 0;
   }
 
-  YmagineFormatOptions_invokeCallback(options, YMAGINE_IMAGEFORMAT_PNG,
-                                      origWidth, origHeight);
+  if (YmagineFormatOptions_invokeCallback(options, YMAGINE_IMAGEFORMAT_PNG,
+                                          origWidth, origHeight) != YMAGINE_OK) {
+    return 0;
+  }
 
   ALOGV("Input is %dx%d bytes", origWidth, origHeight);
 
@@ -249,6 +255,7 @@ PNGDecode(PNGDec* pSrc, Vbitmap *vbitmap,
   }
 
   sharpen = options->sharpen;
+  shader = options->pixelshader;
 
   /* Resize target bitmap */
   if (vbitmap != NULL) {
@@ -295,8 +302,11 @@ PNGDecode(PNGDec* pSrc, Vbitmap *vbitmap,
     }
   }
       
+  transformer = TransformerCreate();
+
   if (png_ptr == NULL || setjmp(*(jmp_buf *) png_ptr)) {
     /* Come back here if failure */
+    ALOGE("error in PNG decode");
     rc = YMAGINE_ERROR;
   } else {
     /* png_set_sib_bytes(png_ptr,8); */
@@ -337,7 +347,7 @@ PNGDecode(PNGDec* pSrc, Vbitmap *vbitmap,
       png_set_tRNS_to_alpha(png_ptr);
     }
 
-    /* RGB => RGBA */
+    /* Force generating alpha channel if none in input image */
     if (color_type != PNG_COLOR_TYPE_RGBA) {
       png_set_filler(png_ptr, 0xff, PNG_FILLER_AFTER);
     }
@@ -380,6 +390,9 @@ PNGDecode(PNGDec* pSrc, Vbitmap *vbitmap,
 
     // bpp = png_get_channels (png_ptr, info_ptr);
     pitch = png_get_rowbytes (png_ptr, info_ptr);
+    if ((pitch % sizeof(char*)) != 0) {
+      pitch += (sizeof(char*) - (pitch % sizeof(char*)));
+    }
 
     /* TODO: check info_width == origWidth && info_height == origHeight */
 #if YMAGINE_DEBUG_PNG
@@ -388,59 +401,69 @@ PNGDecode(PNGDec* pSrc, Vbitmap *vbitmap,
 #endif
 
     /* Create transformer */
-    transformer = TransformerCreate();
     if (transformer != NULL) {
-      TransformerSetWriter(transformer, PngWriter, NULL);
-      TransformerSetMode(transformer, VBITMAP_COLOR_RGBA, VbitmapColormode(vbitmap));
+      int ypos;
+      int nrows;
+      int pass;
+
+      TransformerSetMode(transformer, VBITMAP_COLOR_RGBA, VBITMAP_COLOR_RGBA);
       TransformerSetScale(transformer, info_width, info_height, destrect.width, destrect.height);
       TransformerSetRegion(transformer,
                            srcrect.x, srcrect.y, srcrect.width, srcrect.height);
 
       TransformerSetBitmap(transformer, vbitmap, destrect.x, destrect.y);
+      TransformerSetShader(transformer, shader);
       TransformerSetSharpen(transformer, sharpen);
 
       if (passes == 1) {
-        int ypos;
-        /* If image isn't interlaced, can read it without pre-allocating
-           buffer to contain whole image */
-        data = (unsigned char*) Ymem_malloc(pitch);
-        if (data != NULL) {
-          for (ypos = 0; ypos < info_height; ypos++) {
-            png_read_row(png_ptr, data, NULL);
-            if (TransformerPush(transformer, (const char*) data) != YMAGINE_OK) {
-              ymagine_png_error(png_ptr, "push failed");
-            }
-          }
-          png_read_end(png_ptr, NULL);
-          rc = YMAGINE_OK;
+        /* Max memory to allocate for intermediate buffer */
+        nrows = getWorkingBufferSize() / pitch;
+        if (nrows > info_height) {
+          nrows = info_height;
+        }
+        if (nrows <= 0) {
+          nrows = 1;
         }
       } else {
-        int pass;
-        int ypos;
+        nrows = info_height;
+      }
 
-        /* Else, create a temporary buffer to handle image content */
-        data=(unsigned char*) Ymem_malloc(info_height*pitch);
-        if (data != NULL) {
-          png_data = (unsigned char **) Ymem_malloc(info_height*sizeof(char*));
-          if (png_data != NULL) {
-            for (ypos=0;ypos<info_height;ypos++) {
-              png_data[ypos] = (unsigned char *) (data+ypos*pitch);
-            }
+      data = (unsigned char*) Ymem_malloc(nrows * pitch);
+      if (data != NULL) {
+        png_data = (unsigned char **) Ymem_malloc(nrows * sizeof(char*));
+        if (png_data != NULL) {
+          int j;
+          int reqrows;
 
-            for (pass = 0; pass < passes; pass++) {
-              for (ypos = 0; ypos < info_height; ypos++) {
-                png_read_row(png_ptr, png_data[ypos], NULL);
+          for (ypos = 0; ypos < nrows; ypos++) {
+            png_data[ypos] = (unsigned char *) (data + ypos * pitch);
+          }
+
+          for (pass = 0; pass < passes; pass++) {
+            reqrows = nrows;
+            ypos = 0;
+            while (1) {
+              if (ypos + reqrows > info_height) {
+                reqrows = info_height - ypos;
+              }
+              if (reqrows <= 0) {
+                break;
+              }
+              png_read_rows(png_ptr, png_data, NULL, reqrows);
+              for (j = 0; j < reqrows; j++) {
+                /* Last pass, decoding for those lines is completed */
                 if (pass == passes - 1) {
-                  /* Last pass, row is completed, push content */
-                  if (TransformerPush(transformer, (const char*) (data + ypos * pitch)) != YMAGINE_OK) {
+                  if (TransformerPush(transformer, (const char*) png_data[j]) != YMAGINE_OK) {
                     ymagine_png_error(png_ptr, "push failed");
                   }
                 }
               }
+              ypos += reqrows;
             }
-            png_read_end(png_ptr, NULL);
-            rc = YMAGINE_OK;
           }
+
+          png_read_end(png_ptr, NULL);
+          rc = YMAGINE_OK;
         }
       }
     }
@@ -508,10 +531,11 @@ int
 encodePNG(Vbitmap *vbitmap, Ychannel *channelout, YmagineFormatOptions *options)
 {
   int rc = YMAGINE_ERROR;
+
+#if HAVE_PNG
   char **tags = NULL;
   int pass, number_passes, color_type;  
   int ypos;
-  const unsigned char *line;
   const unsigned char *pixels;
   int width;
   int height;
@@ -521,6 +545,8 @@ encodePNG(Vbitmap *vbitmap, Ychannel *channelout, YmagineFormatOptions *options)
   cleanup_info cleanup;
   png_structp png_ptr;
   png_infop info_ptr;
+  int interlace;
+  unsigned char **png_data = NULL;
   
   cleanup.data = (char **) NULL;
 
@@ -550,12 +576,6 @@ encodePNG(Vbitmap *vbitmap, Ychannel *channelout, YmagineFormatOptions *options)
     return YMAGINE_ERROR;
   }
 
-  if (setjmp(*(jmp_buf *)png_ptr)) {
-    VbitmapUnlock(vbitmap);
-    png_destroy_write_struct(&png_ptr, &info_ptr);
-    return YMAGINE_ERROR;
-  }
-
   rc = YMAGINE_ERROR;
 
   width = VbitmapWidth(vbitmap);
@@ -564,43 +584,58 @@ encodePNG(Vbitmap *vbitmap, Ychannel *channelout, YmagineFormatOptions *options)
   bpp = VbitmapBpp(vbitmap);
   pixels = VbitmapBuffer(vbitmap);
 
-  if (bpp == 1) {
-    color_type = PNG_COLOR_TYPE_GRAY;
-    bpp = 1;
-  }
-  else {
-    color_type = PNG_COLOR_TYPE_RGB;
-    if (bpp == 4) {
-      color_type |= PNG_COLOR_MASK_ALPHA;
+  png_data = (unsigned char **) Ymem_malloc(height * sizeof(char*));
+
+  if (setjmp(*(jmp_buf *)png_ptr)) {
+  } else {
+    if (png_data != NULL) {
+      for (ypos = 0; ypos < height; ypos++) {
+        png_data[ypos] = (unsigned char *) (pixels + ypos * pitch);
+      }
+
+      if (bpp == 1) {
+        color_type = PNG_COLOR_TYPE_GRAY;
+        bpp = 1;
+      }
+      else {
+        color_type = PNG_COLOR_TYPE_RGB;
+        if (bpp == 4) {
+          color_type |= PNG_COLOR_MASK_ALPHA;
+        }
+      }
+
+      if (options != NULL && options->progressive > 0) {
+        interlace = PNG_INTERLACE_ADAM7;
+      } else {
+        interlace = PNG_INTERLACE_NONE;
+      }
+
+      png_set_IHDR(png_ptr, info_ptr, width, height, 8, color_type,
+                   interlace, PNG_COMPRESSION_TYPE_DEFAULT,
+                   PNG_FILTER_TYPE_DEFAULT);
+      png_write_info(png_ptr, info_ptr);
+
+      number_passes = png_set_interlace_handling(png_ptr);
+      for (pass = 0; pass < number_passes; pass++) {
+        png_write_rows(png_ptr, png_data, height);
+      }
+      png_write_end(png_ptr,NULL);
+      rc = YMAGINE_OK;
     }
   }
-
-  png_set_IHDR(png_ptr, info_ptr, width, height, 8, color_type, 
-               PNG_INTERLACE_ADAM7, PNG_COMPRESSION_TYPE_BASE,
-               PNG_FILTER_TYPE_BASE);
-  
-  png_write_info(png_ptr, info_ptr);
-
-  number_passes = png_set_interlace_handling(png_ptr);
-  for (pass = 0; pass < number_passes; pass++) {
-    line = pixels;
-    for (ypos = 0; ypos < height; ypos++) {
-      png_write_row(png_ptr, line);
-      line += pitch;
-    }
-  }
-  png_write_end(png_ptr,NULL);
-  rc = YMAGINE_OK;
 
   VbitmapUnlock(vbitmap);
   png_destroy_write_struct(&png_ptr,&info_ptr);
-    
+  if (png_data != NULL) {
+    Ymem_free((char *) png_data);
+  }
   if (text) {
     Ymem_free((char *) text);
   }
   if (tags) {
     Ymem_free((char *) tags);
   }
+#endif /* HAVE_PNG */
   
   return rc;
 }

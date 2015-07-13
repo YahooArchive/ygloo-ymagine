@@ -70,6 +70,15 @@
  * @method createUIImageWithVbitmap
  * @abstract Create a UIImage from the given Vbitmap
  * @param vbitmap to be converted
+ * @param scale for the created UIImage
+ * @result Returns the newly created UIImage
+ */
++(UIImage *) createUIImageWithVbitmap: (Vbitmap *) vbitmap scale: (float) scale;
+
+/*!
+ * @method createUIImageWithVbitmap
+ * @abstract Create a UIImage from the given Vbitmap
+ * @param vbitmap to be converted
  * @result Returns the newly created UIImage
  */
 +(UIImage *) createUIImageWithVbitmap: (Vbitmap *) vbitmap;

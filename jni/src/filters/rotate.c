@@ -114,7 +114,7 @@ Ymagine_rotateRaw(const unsigned char *idata,
 }
 
 int
-Ymagine_rotate(Vbitmap *vbitmap, Vbitmap *outbitmap,
+Ymagine_rotate(Vbitmap *outbitmap, Vbitmap *vbitmap,
                int centerx, int centery, float angle)
 {
   int width;

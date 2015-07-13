@@ -85,6 +85,7 @@ YMAGINE_MAIN_SRC_FILES += src/formats/vformat.c
 ifeq ($(YMAGINE_CONFIG_BITMAP_JPEG),true)
 YMAGINE_MAIN_SRC_FILES += src/formats/jpeg/jpegio.c
 YMAGINE_MAIN_SRC_FILES += src/formats/jpeg/jpeg.c
+YMAGINE_MAIN_SRC_FILES += src/formats/jpeg/exif.c
 YMAGINE_MAIN_C_INCLUDES += $(JPEGTURBO_ROOT)
 endif
 ifeq ($(YMAGINE_CONFIG_XMP),true)
@@ -131,6 +132,8 @@ YMAGINE_MAIN_SRC_FILES += src/shaders/pixelshader.c
 
 YMAGINE_MAIN_SRC_FILES += src/java/bitmapapi.c
 YMAGINE_MAIN_SRC_FILES += src/java/ymagineapi.c
+
+YMAGINE_MAIN_SRC_FILES += src/design/orb.c
 
 YMAGINE_MAIN_SRC_FILES += src/simple/simple.c
 endif
@@ -180,6 +183,16 @@ LOCAL_CFLAGS := $(YMAGINE_MAIN_CFLAGS)
 LOCAL_LDFLAGS := $(YMAGINE_MAIN_LDFLAGS)
 LOCAL_STATIC_LIBRARIES := $(YMAGINE_STATIC_LIBRARIES)
 LOCAL_SHARED_LIBRARIES := $(YMAGINE_SHARED_LIBRARIES)
+
+# Ensure local symbols of dependencies are used, and not
+# global symbols from other shared libraries loaded in the process
+# (e.g. libjpeg.so, etc.)
+ifeq (linux,$(TARGET_OS))
+LOCAL_LDFLAGS += -Wl,-Bsymbolic
+endif
+ifeq (linux,$(TARGET_OS))
+# LOCAL_LDFLAGS += -Wl,--no-allow-shlib-undefined
+endif
 
 # If static library has to be linked inside a larger shared library later,
 # all code has to be compiled as PIC (Position Independant Code)

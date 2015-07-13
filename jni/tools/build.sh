@@ -37,12 +37,14 @@ if [ "$1" = "clean" ]; then
   rm -rf "${TOPDIR}/obj"
   rm -rf "${TOPDIR}/libs/armeabi"
   rm -rf "${TOPDIR}/libs/armeabi-v7a"
+  rm -rf "${TOPDIR}/libs/arm64-v8a"
   rm -rf "${TOPDIR}/libs/x86"
 
   if [ "$2" = "vision" ]; then
     rm -rf "${TOPDIR_VISION}/obj"
     rm -rf "${TOPDIR_VISION}/libs/armeabi"
     rm -rf "${TOPDIR_VISION}/libs/armeabi-v7a"
+    rm -rf "${TOPDIR_VISION}/libs/arm64-v8a"
     rm -rf "${TOPDIR_VISION}/libs/x86"
   fi
 

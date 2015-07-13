@@ -93,6 +93,16 @@ int
 main_decode(int argc, const char* argv[]);
 
 int
+usage_tile();
+int
+main_tile(int argc, const char* argv[]);
+
+int
+usage_design();
+int
+main_design(int argc, const char* argv[]);
+
+int
 usage_transcode();
 int
 main_transcode(int argc, const char* argv[]);
@@ -106,6 +116,11 @@ int
 usage_psnr();
 int
 main_psnr(int argc, const char* argv[]);
+
+int
+usage_shape();
+int
+main_shape(int argc, const char* argv[]);
 
 int
 usage_blur();

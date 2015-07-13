@@ -48,14 +48,14 @@ main_psnr(int argc, const char* argv[])
   if (f1 != NULL) {
     channel1 = YchannelInitFile(f1, 0);
     if (channel1 != NULL) {
-      vbitmap1 = VbitmapInitMemory(VBITMAP_COLOR_RGB);
+      vbitmap1 = VbitmapInitMemory(VBITMAP_COLOR_RGBA);
       rc = YmagineDecode(vbitmap1, channel1, NULL);
       if (rc == YMAGINE_OK){
         f2 = fopen(p2, "r");
         if (f2 != NULL) {
           channel2 = YchannelInitFile(f2, 0);
           if (channel2 != NULL) {
-            vbitmap2 = VbitmapInitMemory(VBITMAP_COLOR_RGB);
+            vbitmap2 = VbitmapInitMemory(VBITMAP_COLOR_RGBA);
             rc = YmagineDecode(vbitmap2, channel2, NULL);
             if (rc == YMAGINE_OK) {
               psnr = VbitmapComputePSNR(vbitmap1, vbitmap2);

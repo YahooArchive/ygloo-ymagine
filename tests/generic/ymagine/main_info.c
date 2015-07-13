@@ -72,6 +72,7 @@ main_info(int argc, const char* argv[])
         }
         YchannelRelease(channel);
       }
+      fclose(f);
     }
 
     fprintf(stdout, "%s\t%d\t%d\n", filename, VbitmapWidth(vbitmap), VbitmapHeight(vbitmap));

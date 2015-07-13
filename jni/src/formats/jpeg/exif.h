@@ -10,31 +10,21 @@
  * the License. See accompanying LICENSE file.
  */
 
-#ifndef _YMAGINE_GRAPHICS_TRANSFORMER_H
-#define _YMAGINE_GRAPHICS_TRANSFORMER_H 1
+#ifndef _YMAGINE_FORMATS_JPEG_EXIF_H
+#define _YMAGINE_FORMATS_JPEG_EXIF_H
 
 #include "ymagine/ymagine.h"
 #include "ymagine_priv.h"
-
-#include <stdlib.h>
-#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int bltLine(unsigned char *opixels, int owidth, int obpp,
-	    const unsigned char *ipixels, int iwidth, int ibpp);
-
 int
-YmagineMergeLine(unsigned char *destpixels, int destmode, int destweight,
-                 const unsigned char *srcpixels, int srcmode, int srcweight,
-                 int width);
+parseExifOrientation(const unsigned char *exifbuf, int buflen);
 
-int
-TransformerSetKernel(Transformer *transformer, int *kernel);
 #ifdef __cplusplus
 };
 #endif
 
-#endif /* _YMAGINE_GRAPHICS_TRANSFORMER_H */
+#endif /* _YMAGINE_FORMATS_JPEG_EXIF_H */

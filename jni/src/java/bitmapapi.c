@@ -20,6 +20,7 @@
 #define LOG_TAG "ymagine::bitmap"
 
 #include "ymagine/ymagine.h"
+#include "ymagine/ymagine_ymaginejni.h"
 
 #include "ymagine_config.h"
 #include "ymagine_priv.h"
@@ -77,7 +78,7 @@ static jfieldID gOptions_inFit;
 static jfieldID gOptions_inNative;
 static jfieldID gOptions_inStream;
 static jfieldID gOptions_inBitmap;
-static jfieldID gOptions_inFilterBlur;
+static jfieldID gOptions_inBlur;
 static jfieldID gOptions_inShader;
 static jfieldID gOptions_inQuality;
 static jfieldID gOptions_outPanoMode;
@@ -87,6 +88,7 @@ static jfieldID gOptions_outPanoFullWidth;
 static jfieldID gOptions_outPanoFullHeight;
 static jfieldID gOptions_outPanoX;
 static jfieldID gOptions_outPanoY;
+static jfieldID gOptions_outOrientation;
 
 static int
 bitmapfactory_init(JNIEnv *_env)
@@ -178,6 +180,104 @@ decodeChannel(JNIEnv* _env, jobject object,
   VbitmapRelease(vbitmap);
 
   return outbitmap;
+}
+
+static jobject
+bitmap_jni_createOrb(JNIEnv* _env, jobject object,
+                     jobject jbitmap, jint reqSize)
+{
+  jobject outbitmap = NULL;
+  Vbitmap *vbitmap;
+  int rc = YMAGINE_ERROR;
+
+  if (jbitmap == NULL) {
+    if (reqSize <= 0) {
+      return NULL;
+    }
+
+    jbitmap = createAndroidBitmap(_env, reqSize, reqSize);
+  }
+
+  vbitmap = VbitmapInitAndroid(_env, jbitmap);
+  rc = VbitmapOrbLoad(vbitmap, reqSize);
+  if (rc == YMAGINE_OK) {
+    outbitmap = VbitmapGetAndroid(vbitmap);
+  }
+  VbitmapRelease(vbitmap);
+
+  return outbitmap;
+}
+
+static jint
+bitmap_jni_renderOrbTile(JNIEnv* _env, jobject object,
+                         jobject jbitmap, jint ntiles, jint tileid, jobject stream)
+{
+  Ychannel *channel;
+  int rc = -1;
+
+  if (stream == NULL) {
+    return rc;
+  }
+
+  channel = YchannelInitJavaInputStream(_env, stream);
+  if (channel == NULL) {
+    ALOGD("failed to create Ychannel for input stream");
+  } else {
+    Vbitmap *vbitmap = VbitmapInitAndroid(_env, jbitmap);
+    if (vbitmap != NULL) {
+      if (VbitmapOrbRenderTile(vbitmap, ntiles, tileid, channel) == YMAGINE_OK) {
+        rc = tileid;
+      }
+      VbitmapRelease(vbitmap);
+    }
+    YchannelRelease(channel);
+  }
+
+  return rc;
+#if 0
+  int ninfiles = 0;
+  int rc = 0;
+  int i;
+  const char** infiles;
+  Vbitmap *vbitmap;
+
+  if (jinfiles == NULL) {
+    return 0;
+  }
+  ninfiles = (*_env)->GetArrayLength(_env, jinfiles);
+  if (ninfiles <= 0) {
+    return 0;
+  }
+
+  infiles = Ymem_malloc(ninfiles * sizeof(char*));
+  if (infiles != NULL) {
+    for (i = 0; i < ninfiles; i++) {
+      jstring jstr = (jstring) (*_env)->GetObjectArrayElement(_env, jinfiles, i);
+      if (jstr == NULL) {
+        infiles[i] = NULL;
+      } else {
+        infiles[i] = (*_env)->GetStringUTFChars(_env, jstr, NULL);
+      }
+    }
+
+    vbitmap = VbitmapInitAndroid(_env, jbitmap);
+    if (VbitmapOrbRenderTile(vbitmap, ntiles, tileid, infiles) != YMAGINE_OK) {
+      rc = 0;
+    } else {
+      rc = ninfiles;
+    }
+    VbitmapRelease(vbitmap);
+
+    for (i = 0; i < ninfiles; i++) {
+      if (infiles[i] != NULL) {
+        jstring jstr = (jstring) (*_env)->GetObjectArrayElement(_env, jinfiles, i);
+        if (jstr != NULL) {
+          (*_env)->ReleaseStringUTFChars(_env, jstr, infiles[i]);
+        }
+      }
+    }
+  }
+#endif
 }
 
 JNIEXPORT jobject JNICALL
@@ -307,30 +407,40 @@ bitmap_jni_decodeStream(JNIEnv* _env, jobject object,
   return outbitmap;
 }
 
-JNIEXPORT jobject JNICALL
-bitmap_jni_decodeStreamOptions(JNIEnv* _env, jobject object,
-                               jobject stream, jobject joptions)
+static jobject JNICALL
+bitmap_jni_decodeOptions(JNIEnv* _env, jobject object,
+                         jobject stream, jobject jsrcvbitmap, jobject joptions)
 {
-  Vbitmap *vbitmap;
+  Vbitmap *vbitmap = NULL;
   int rc = YMAGINE_ERROR;
-  Ychannel *channel;
+  Ychannel *channel = NULL;
+  Vbitmap *srcvbitmap = NULL;
   jint maxWidth = -1;
   jint maxHeight = -1;
   jboolean scaleCrop = 0;
   jboolean scaleFit = 0;
   jboolean justBounds = 0;
   jobject jbitmap = NULL;
+  jobject jshader = NULL;
+  PixelShader* shader = NULL;
   jobject outbitmap = NULL;
   //jobject outstream = NULL;
   int scaleMode = YMAGINE_SCALE_LETTERBOX;
+  float blur = 0.0f;
+  YmagineFormatOptions *options;
 
-  if (stream == NULL) {
-    return NULL;
-  }
-
-  channel = YchannelInitJavaInputStream(_env, stream);
-  if (channel == NULL) {
-    ALOGD("failed to create Ychannel for input stream");
+  if (stream != NULL) {
+    channel = YchannelInitJavaInputStream(_env, stream);
+    if (channel == NULL) {
+      ALOGD("failed to create Ychannel for input stream");
+      return NULL;
+    }
+  } else if (jsrcvbitmap != NULL) {
+    srcvbitmap = YmagineJNI_VbitmapRetain(_env, jsrcvbitmap);
+    if (srcvbitmap == NULL) {
+      return NULL;
+    }
+  } else {
     return NULL;
   }
 
@@ -341,6 +451,11 @@ bitmap_jni_decodeStreamOptions(JNIEnv* _env, jobject object,
     scaleFit = (*_env)->GetBooleanField(_env, joptions, gOptions_inFit);
     justBounds = (*_env)->GetBooleanField(_env, joptions, gOptions_justBounds);
     jbitmap = (*_env)->GetObjectField(_env, joptions, gOptions_inBitmap);
+    blur = (float) (*_env)->GetFloatField(_env, joptions, gOptions_inBlur);
+
+    jshader = (*_env)->GetObjectField(_env, joptions, gOptions_inShader);
+    shader = getPixelShader(_env, jshader);
+
     //outstream = (*_env)->GetObjectField(_env, joptions, gOptions_inStream);
 
     if (scaleFit) {
@@ -352,27 +467,61 @@ bitmap_jni_decodeStreamOptions(JNIEnv* _env, jobject object,
     }
   }
 
-  if (justBounds) {
-    vbitmap = VbitmapInitNone();
-    rc = YmagineDecodeResize(vbitmap, channel, maxWidth, maxHeight, scaleMode);
-  } else {
-    vbitmap = VbitmapInitAndroid(_env, jbitmap);
-    if (jbitmap != NULL) {
-      rc = YmagineDecodeInPlace(vbitmap, channel, maxWidth, maxHeight, scaleMode);
+  options = YmagineFormatOptions_Create();
+  if (options != NULL) {
+    YmagineFormatOptions_setResize(options, maxWidth, maxHeight, scaleMode);
+    YmagineFormatOptions_setBlur(options, blur);
+    YmagineFormatOptions_setShader(options, shader);
+
+    if (justBounds) {
+      vbitmap = VbitmapInitNone();
+      YmagineFormatOptions_setResizable(options, 1);
     } else {
-      rc = YmagineDecodeResize(vbitmap, channel, maxWidth, maxHeight, scaleMode);
+      vbitmap = VbitmapInitAndroid(_env, jbitmap);
+      if (jbitmap != NULL) {
+        YmagineFormatOptions_setResizable(options, 0);
+      } else {
+        YmagineFormatOptions_setResizable(options, 1);
+      }
+    }
+    if (channel != NULL) {
+      rc = YmagineDecode(vbitmap, channel, options);
+    } else if (srcvbitmap != NULL) {
+      rc = YmagineDecodeCopy(vbitmap, srcvbitmap, options);
+    } else {
+      rc = YMAGINE_ERROR;
+    }
+    YmagineFormatOptions_Release(options);
+
+    if (rc == YMAGINE_OK && VbitmapType(vbitmap) == VBITMAP_ANDROID) {
+      outbitmap = VbitmapGetAndroid(vbitmap);
     }
   }
 
-  if (rc == YMAGINE_OK && VbitmapType(vbitmap) == VBITMAP_ANDROID) {
-    outbitmap = VbitmapGetAndroid(vbitmap);
-  }
-
-  if (joptions != NULL && rc == YMAGINE_OK) {
+  if (joptions != NULL && rc == YMAGINE_OK && vbitmap != NULL) {
+    int orientation;
     /* Set output options */
     (*_env)->SetIntField(_env, joptions, gOptions_width, VbitmapWidth(vbitmap));
     (*_env)->SetIntField(_env, joptions, gOptions_height,  VbitmapHeight(vbitmap));
     (*_env)->SetObjectField(_env, joptions, gOptions_mime,  NULL);
+    orientation = VbitmapGetOrientation(vbitmap);
+    switch (orientation) {
+      case VBITMAP_ORIENTATION_ROTATE_90:
+      (*_env)->SetIntField(_env, joptions, gOptions_outOrientation, 90);
+      break;
+
+      case VBITMAP_ORIENTATION_ROTATE_180:
+      (*_env)->SetIntField(_env, joptions, gOptions_outOrientation, 180);
+      break;
+
+      case VBITMAP_ORIENTATION_ROTATE_270:
+      (*_env)->SetIntField(_env, joptions, gOptions_outOrientation, 270);
+      break;
+
+      default:
+      (*_env)->SetIntField(_env, joptions, gOptions_outOrientation, 0);
+      break;
+    }
 
     VbitmapXmp *xmp = VbitmapGetXMP(vbitmap);
     if (xmp != NULL) {
@@ -388,9 +537,28 @@ bitmap_jni_decodeStreamOptions(JNIEnv* _env, jobject object,
     }
   }
 
-  VbitmapRelease(vbitmap);
+  if (jsrcvbitmap != NULL) {
+    YmagineJNI_VbitmapRelease(_env, jsrcvbitmap);
+  }
+  if (vbitmap != NULL) {
+    VbitmapRelease(vbitmap);
+  }
 
   return outbitmap;
+}
+
+JNIEXPORT jobject JNICALL
+bitmap_jni_decodeStreamOptions(JNIEnv* _env, jobject object,
+                               jobject stream, jobject joptions)
+{
+  return bitmap_jni_decodeOptions(_env, object, stream, NULL, joptions);
+}
+
+JNIEXPORT jobject JNICALL
+bitmap_jni_decodeVbitmapOptions(JNIEnv* _env, jobject object,
+                                jobject jvbitmap, jobject joptions)
+{
+  return bitmap_jni_decodeOptions(_env, object, NULL, jvbitmap, joptions);
 }
 
 JNIEXPORT jint JNICALL
@@ -713,6 +881,14 @@ static JNINativeMethod bitmap_methods[] = {
   {   "native_applyShader",
     "(Landroid/graphics/Bitmap;Lcom/yahoo/ymagine/Shader;)I",
     (void*) bitmap_jni_applyShader
+  },
+  {   "native_createOrb",
+    "(Landroid/graphics/Bitmap;I)Landroid/graphics/Bitmap;",
+    (void*) bitmap_jni_createOrb
+  },
+  {   "native_renderOrbTile",
+    "(Landroid/graphics/Bitmap;IILjava/io/InputStream;)I",
+    (void*) bitmap_jni_renderOrbTile
   }
 };
 
@@ -750,6 +926,19 @@ int register_BitmapFactory(JNIEnv *_env, const char *classPathName)
   options_methods[0].name = "native_decodeStreamOptions";
   options_methods[0].signature = buf;
   options_methods[0].fnPtr = (void*) bitmap_jni_decodeStreamOptions;
+
+  rc = jniutils_registerNativeMethods(_env, classPathName,
+                                      options_methods, 1);
+  if (rc != JNI_TRUE) {
+    return JNI_FALSE;
+  }
+
+  snprintf(buf, sizeof(buf),
+           "(Lcom/yahoo/ymagine/Vbitmap;L%s$Options;)Landroid/graphics/Bitmap;", classPathName);
+
+  options_methods[0].name = "native_decodeVbitmapOptions";
+  options_methods[0].signature = buf;
+  options_methods[0].fnPtr = (void*) bitmap_jni_decodeVbitmapOptions;
 
   rc = jniutils_registerNativeMethods(_env, classPathName,
                                       options_methods, 1);
@@ -802,7 +991,7 @@ int register_BitmapFactory(JNIEnv *_env, const char *classPathName)
   gOptions_inNative = (*_env)->GetFieldID(_env, clazz, "inNative", "Z");
   gOptions_inStream = (*_env)->GetFieldID(_env, clazz, "inStream", "Ljava/io/OutputStream;");
   gOptions_inBitmap = (*_env)->GetFieldID(_env, clazz, "inBitmap", "Landroid/graphics/Bitmap;");
-  gOptions_inFilterBlur = (*_env)->GetFieldID(_env, clazz, "inFilterBlur", "Z");
+  gOptions_inBlur = (*_env)->GetFieldID(_env, clazz, "inBlur", "F");
   gOptions_inShader = (*_env)->GetFieldID(_env, clazz, "inShader", "Lcom/yahoo/ymagine/Shader;");
   gOptions_inQuality = (*_env)->GetFieldID(_env, clazz, "inQuality", "I");
 
@@ -813,6 +1002,7 @@ int register_BitmapFactory(JNIEnv *_env, const char *classPathName)
   gOptions_outPanoFullHeight = (*_env)->GetFieldID(_env, clazz, "outPanoFullHeight", "I");
   gOptions_outPanoX = (*_env)->GetFieldID(_env, clazz, "outPanoX", "I");
   gOptions_outPanoY = (*_env)->GetFieldID(_env, clazz, "outPanoY", "I");
+  gOptions_outOrientation = (*_env)->GetFieldID(_env, clazz, "outOrientation", "I");
 
   return JNI_TRUE;
 }

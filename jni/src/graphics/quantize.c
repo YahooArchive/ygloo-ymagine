@@ -393,7 +393,7 @@ getThemeColor(Vbitmap *vbitmap)
 
   ncolors = getThemeColors(vbitmap, sizeof(colors) / sizeof(colors[0]), colors, scores);
 
-  if (ncolors <= 0 || colors == NULL) {
+  if (ncolors <= 0) {
     return RGBA(0, 0, 0, 0);
   }
 

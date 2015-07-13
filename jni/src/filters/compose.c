@@ -494,21 +494,28 @@ Ymagine_drawRect(Vbitmap *vbitmap,
       height = 0;
     }
 
+    if (bw <= 0 || bh <= 0) {
+      return YMAGINE_OK;
+    }
+
     if (bx < 0) {
       bw += bx;
       bx = 0;
-    }
-    if (bx + bw > width) {
-      bw = width - bx;
     }
     if (by < 0) {
       bh += by;
       by = 0;
     }
-    if (by + bh > height) {
-      by = height - bx;
+    if (bx >= width || by >= height) {
+      return YMAGINE_OK;
     }
 
+    if (bx + bw > width) {
+      bw = width - bx;
+    }
+    if (by + bh > height) {
+      bh = height - by;
+    }
     if (bw <= 0 || bh <= 0) {
       return YMAGINE_OK;
     }
@@ -523,9 +530,9 @@ Ymagine_drawRect(Vbitmap *vbitmap,
         unsigned char *l = pixels + by * pitch + bx * bpp;
 
         for (i = 0; i < bh; i++) {
-            rc = composeLine(l, colorArray, bpp, overlaybpp, bw, composeMode);
-            if (rc == YMAGINE_ERROR) break;
-            l += pitch;
+          rc = composeLine(l, colorArray, bpp, overlaybpp, bw, composeMode);
+          if (rc == YMAGINE_ERROR) break;
+          l += pitch;
         }
     }
     VbitmapUnlock(vbitmap);
@@ -547,7 +554,7 @@ Ymagine_composeColor(Vbitmap *vbitmap,
 
 int
 Ymagine_composeImage(Vbitmap *vbitmap, Vbitmap *overlay,
-             int x, int y, ymagineCompose composeMode)
+                     int x, int y, ymagineCompose composeMode)
 {
     int rc = YMAGINE_ERROR;
     // o prefix means that property belongs to the overlay
@@ -557,8 +564,12 @@ Ymagine_composeImage(Vbitmap *vbitmap, Vbitmap *overlay,
     int height, oheight;
     int pitch, opitch;
     int bpp, obpp;
+    int colormode, ocolormode;
     int j;
     int xstart, ystart, newwidth, newheight;
+
+    colormode = VbitmapColormode(vbitmap);
+    ocolormode = VbitmapColormode(overlay);
 
     bpp = VbitmapBpp(vbitmap);
     obpp = VbitmapBpp(overlay);
@@ -587,6 +598,7 @@ Ymagine_composeImage(Vbitmap *vbitmap, Vbitmap *overlay,
     opitch = VbitmapPitch(overlay);
 
     rc = YMAGINE_OK;
+
     xstart = 0;
     ystart = 0;
     newwidth = 0;
@@ -649,14 +661,32 @@ Ymagine_composeImage(Vbitmap *vbitmap, Vbitmap *overlay,
     if (pixels != NULL && opixels != NULL && rc != YMAGINE_ERROR) {
       unsigned char *iline = pixels + xstart * bpp + ystart * pitch;
       unsigned char *oline = opixels + ((xstart - x) * obpp) + ystart * opitch;
+      
+      ALOGD("compose with mode %d to %d rc=%d", colormode, ocolormode, rc);
 
-      for (j = 0; j < newheight; j++) {
-        rc = composeLine(iline, oline, bpp, obpp, newwidth, composeMode);
-        if (rc == YMAGINE_ERROR) break;
+      if ( (colormode == VBITMAP_COLOR_RGBA || colormode == VBITMAP_COLOR_rgbA) && (ocolormode == VBITMAP_COLOR_RGBA) ) {
+        for (j = 0; j < newheight; j++) {
+          rc = composeLine(iline, oline, bpp, obpp, newwidth, composeMode);
+          if (rc == YMAGINE_ERROR) break;
 
-        iline += pitch;
-        oline += opitch;
+          if (composeMode == YMAGINE_COMPOSE_BUMP && colormode == VBITMAP_COLOR_rgbA) {
+            int i;
+            unsigned char *nextc = iline;
+            for (i = 0; i < newwidth; i++) {
+              int alpha = (int) nextc[3];
+              if (alpha != 0xff) {
+                nextc[0] = (nextc[0] * alpha) / 0xff;
+                nextc[1] = (nextc[1] * alpha) / 0xff;
+                nextc[2] = (nextc[2] * alpha) / 0xff;
+              }
+              nextc += 4;
+            }
+          }
+          iline += pitch;
+          oline += opitch;
+        }
       }
+    } else {
     }
 
     VbitmapUnlock(vbitmap);

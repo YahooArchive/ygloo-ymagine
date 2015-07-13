@@ -16,14 +16,21 @@
 
 int
 Ymagine_blurBuffer(unsigned char *pix,
-                   int w, int h, int pitch, int bpp,
+                   int w, int h, int pitch, int colormode,
                    int radius)
 {
+  int niter;
+
   if (radius <= 0) {
     return YMAGINE_OK;
   }
 
-  return Ymagine_blurSuperfast(pix, w, h, pitch, bpp, radius, 2);
+  niter = 1;
+  while ((niter + 1) * (niter + 1) < radius && niter < 4) {
+    niter++;
+  }
+
+  return Ymagine_blurSuperfast(pix, w, h, pitch, colormode, radius, niter);
 }
 
 int
@@ -36,10 +43,10 @@ Ymagine_blur(Vbitmap *vbitmap, int radius)
     int width = VbitmapWidth(vbitmap);
     int height = VbitmapHeight(vbitmap);
     int pitch = VbitmapPitch(vbitmap);
-    int bpp = colorBpp(VbitmapColormode(vbitmap));
+    int colormode = VbitmapColormode(vbitmap);
 
     if (Ymagine_blurBuffer(pixels,
-                           width, height, pitch, bpp,
+                           width, height, pitch, colormode,
                            (int) radius) == YMAGINE_OK) {
       rc = YMAGINE_OK;
     }

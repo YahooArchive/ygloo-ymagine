@@ -14,15 +14,13 @@
 
 static int
 decodeImage(char* data, size_t length,
+            int maxWidth, int maxHeight,
             int ncolors, int detect, int classify, PixelShader* shader)
 {
   Vbitmap *vbitmap;
   Ychannel *channel;
   int rc = -1;
   YmagineFormatOptions *options = NULL;  
-
-  unsigned int maxWidth = 1024;
-  unsigned int maxHeight = 1024;
   int scaleMode = YMAGINE_SCALE_LETTERBOX;
 
   if (detect) {
@@ -87,7 +85,7 @@ decodeImage(char* data, size_t length,
           }
         }
 
-        /* Export image with deteted regions */
+        /* Export image with detected regions */
         if (1) {
           int fmode;
           int fdout;
@@ -155,7 +153,18 @@ decodeImage(char* data, size_t length,
       if (vbitmap != NULL) {
         rc = YmagineDecode(vbitmap, channel, options);
         if (rc == YMAGINE_OK) {
-          classify_run(vbitmap);
+          int categories[5];
+          float scores[5];
+          int nfound = 0;
+          int i;
+
+          nfound = classify_run(vbitmap, 5, categories, scores);
+          if (nfound > 0) {
+            for (i = 0; i < nfound; i++) {
+              printf("#%d  %.6f [%d] %s\n",
+                     i, scores[i], categories[i], classify_label(categories[i]));
+            }
+          }
         }
       }
 #else
@@ -165,7 +174,7 @@ decodeImage(char* data, size_t length,
       vbitmap = VbitmapInitMemory(VBITMAP_COLOR_RGBA);
       rc = YmagineDecode(vbitmap, channel, options);
 
-      printf("Decoded: %dx%d\n", VbitmapWidth(vbitmap), VbitmapHeight(vbitmap));
+      printf("Decoded: %dx%d, orientation: %d\n", VbitmapWidth(vbitmap), VbitmapHeight(vbitmap), VbitmapGetOrientation(vbitmap));
 #if 0
       if (ncolors > 0) {
         int i=0;
@@ -235,6 +244,8 @@ main_decode(int argc, const char* argv[])
   int ncolors = 0;
   const char *classifier_path = NULL;
   const char *convnet_path = NULL;
+  int maxWidth = -1;
+  int maxHeight = -1;
 
   if (argc <= 1) {
     usage_decode();
@@ -251,7 +262,23 @@ main_decode(int argc, const char* argv[])
       break;
     }
 
-    if (argv[i][1] == 'c' && strcmp(argv[i], "-cascade") == 0) {
+    if (argv[i][1] == 'w' && strcmp(argv[i], "-width") == 0) {
+      if (i+1 >= argc) {
+        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
+        fflush(stdout);
+        return 1;
+      }
+      i++;
+      maxWidth = atoi(argv[i]);
+    } else if (argv[i][1] == 'h' && strcmp(argv[i], "-height") == 0) {
+      if (i+1 >= argc) {
+        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
+        fflush(stdout);
+        return 1;
+      }
+      i++;
+      maxHeight = atoi(argv[i]);
+    } else if (argv[i][1] == 'c' && strcmp(argv[i], "-cascade") == 0) {
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
         fflush(stdout);
@@ -324,7 +351,7 @@ main_decode(int argc, const char* argv[])
 #if HAVE_PLUGIN_VISION
       fprintf(stdout, "Loading convnet from %s\n", convnet_path);
       fflush(stdout);
-      if (classify_load_model(convnet_path) == YMAGINE_OK) {
+      if (classify_load_model_file(convnet_path) == YMAGINE_OK) {
         fprintf(stdout, "Convnet loaded from %s\n", convnet_path);
         classify = 1;
       } else {
@@ -337,18 +364,19 @@ main_decode(int argc, const char* argv[])
 
     if (warmup) {
       /* Make one run in each mode, to not benchmark one-time initialization */
-      decodeImage(fbase, flen, 0, detect, classify, NULL);
+      decodeImage(fbase, flen, maxWidth, maxHeight, 0, detect, classify, NULL);
     }
 
     start = NSTIME();
     for (pass = 0; pass < nbiters; ++pass) {
-      decodeImage(fbase, flen, ncolors, detect, classify, NULL);
+      decodeImage(fbase, flen, maxWidth, maxHeight, ncolors, detect, classify, NULL);
     }
     end = NSTIME();
 
 #if YMAGINE_PROFILE
-    fprintf(stdout, "Decoded %d times in %ld ns -> %.2f ms per decoding\n",
-            nbiters, (long) (end - start),
+    fprintf(stdout, "Decoded %d times in %.2f ms -> %.2f ms per decoding\n",
+            nbiters,
+            ((double) (end - start)) / 1000000.0,
             ((double) (end - start)) / (nbiters*1000000.0));
     fflush(stdout);
 #endif

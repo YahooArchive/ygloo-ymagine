@@ -22,13 +22,20 @@ YMAGINE_CONFIG_BITMAP_WEBP:=true
 YMAGINE_CONFIG_BITMAP_PNG:=true
 YMAGINE_CONFIG_BITMAP_GIF:=false
 YMAGINE_CONFIG_XMP:=true
-YMAGINE_CONFIG_CLASSIFIER:=true
-YMAGINE_CONFIG_VIDEO:=true
-ifeq (,$(wildcard $(YMAGINE_JNI)/plugins/vision))
+YMAGINE_CONFIG_CLASSIFIER:=false
+YMAGINE_CONFIG_VISION:=false
+YMAGINE_CONFIG_VIDEO:=false
+YMAGINE_CONFIG_DLIB:=false
+ifeq (,$(wildcard $(YMAGINE_JNI)/../plugins/vision))
 YMAGINE_CONFIG_CLASSIFIER:=false
 endif
-ifeq (,$(wildcard $(YMAGINE_JNI)/plugins/video))
+ifeq (,$(wildcard $(YMAGINE_JNI)/../plugins/video))
 YMAGINE_CONFIG_VIDEO:=false
+endif
+
+ifeq ($(BUILD_JAVASCRIPT),true)
+#YMAGINE_CONFIG_CLASSIFIER:=false
+#YMAGINE_CONFIG_VIDEO:=false
 endif
 
 # Code layout

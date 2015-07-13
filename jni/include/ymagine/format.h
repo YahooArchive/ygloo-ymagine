@@ -50,6 +50,10 @@ typedef int (*YmagineFormatOptions_ProgressCB)(YmagineFormatOptions *options,
 #define YMAGINE_METAMODE_ALL        2
 #define YMAGINE_METAMODE_DEFAULT    -1
 
+#define YMAGINE_ADJUST_NONE         0
+#define YMAGINE_ADJUST_INNER        1
+#define YMAGINE_ADJUST_OUTER        2
+
 YmagineFormatOptions*
 YmagineFormatOptions_Create();
 
@@ -86,6 +90,10 @@ YmagineFormatOptions_setSubsampling(YmagineFormatOptions *options,
                                     int subsampling);
 
 YmagineFormatOptions*
+YmagineFormatOptions_setProgressive(YmagineFormatOptions *options,
+                                    int progressive);
+
+YmagineFormatOptions*
 YmagineFormatOptions_setSharpen(YmagineFormatOptions *options,
                                 float sigma);
 
@@ -106,6 +114,14 @@ YmagineFormatOptions_setRotate(YmagineFormatOptions *options,
 YmagineFormatOptions*
 YmagineFormatOptions_setResize(YmagineFormatOptions *options,
                                int maxWidth, int maxHeight, int scalemode);
+
+YmagineFormatOptions*
+YmagineFormatOptions_setAdjust(YmagineFormatOptions *options,
+                               int adjustmode);
+
+YmagineFormatOptions*
+YmagineFormatOptions_setResizable(YmagineFormatOptions *options,
+                                  int resizable);
 
 YmagineFormatOptions*
 YmagineFormatOptions_setShader(YmagineFormatOptions *options,
@@ -247,7 +263,7 @@ YmagineFormatOptions_getData(YmagineFormatOptions *options);
 
 
 /**
- * Set callback function to be invoked during decodign and transcoding pipeline
+ * Set callback function to be invoked during decoding and transcoding pipeline
  *
  * @param options YmagineFormatOptions options
  * @param progresscb Callback function to invoke during decoding
@@ -299,6 +315,18 @@ YmagineFormat(Ychannel *channel);
 int
 YmagineDecode(Vbitmap *bitmap, Ychannel *channel,
               YmagineFormatOptions *options);
+
+/**
+ * Decode an image from an input Vbitmap into a Vbitmap.
+ *
+ * @param bitmap to decode into
+ * @param srcbitmap source Vbitmap
+ * @param options for decoder
+ *
+ * @return YMAGINE_OK on success
+ */
+int
+YmagineDecodeCopy(Vbitmap *bitmap, Vbitmap *srcbitmap, YmagineFormatOptions *options);
 
 /**
  * Decode an image coming from a Ychannel into a Vbitmap. Wrap your source

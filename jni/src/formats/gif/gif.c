@@ -231,12 +231,17 @@ GIFDecode(Ychannel *fd, Vbitmap *vbitmap, YmagineFormatOptions *options,
     GIFDEBUG(("failed to read image header\n"));
     return 0;
   }
-  
+
   colorResolution = ((((unsigned int) buf[0]&0x70)>>3)+1);
-  aspectRatio = buf[2];
-  
-  YmagineFormatOptions_invokeCallback(options, YMAGINE_IMAGEFORMAT_GIF,
-                                      width, height);
+  aspectRatio = 0;
+  if (buf[2] != 0) {
+    aspectRatio = (buf[2] + 15) / 64;
+  }
+    
+  if (YmagineFormatOptions_invokeCallback(options, YMAGINE_IMAGEFORMAT_GIF,
+                                          width, height) != YMAGINE_OK) {
+    return 0;
+  }
 
   /* Create image */
   if (VbitmapResize(vbitmap, width, height) != YMAGINE_OK) {
@@ -449,8 +454,8 @@ GIFDecode(Ychannel *fd, Vbitmap *vbitmap, YmagineFormatOptions *options,
 	if (xpos == frameWidth) {
 	  /* Copy scanline into image handle */
           if (odata != NULL) {
-            bltLine(odata + (framePosy + ypos) * opitch + framePosx * obpp, frameWidth, obpp,
-                    data, frameWidth, 4);
+            bltLine(odata + (framePosy + ypos) * opitch + framePosx * obpp, frameWidth, oformat,
+                    data, frameWidth, VBITMAP_COLOR_RGBA);
           }
 	  
 	  /* Jump to next line */

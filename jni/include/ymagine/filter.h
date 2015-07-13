@@ -47,7 +47,7 @@ extern "C" {
  * @return YMAGINE_OK if rotation is succesfull, else YMAGINE_ERROR
  */
 int
-Ymagine_rotate(Vbitmap *vbitmap, Vbitmap *outbitmap,
+Ymagine_rotate(Vbitmap *outbitmap, Vbitmap *vbitmap,
                int centerx, int centery, float angle);
 
 /**

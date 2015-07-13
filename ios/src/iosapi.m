@@ -96,6 +96,11 @@ static void freeProviderData(void *info, const void *data, size_t size) {
 
 +(UIImage *) createUIImageWithVbitmap: (Vbitmap *) vbitmap
 {
+    return [self createUIImageWithVbitmap:vbitmap scale:1.0];
+}
+
++(UIImage *) createUIImageWithVbitmap: (Vbitmap *) vbitmap scale: (float) scale
+{
     CGImageAlphaInfo alphaInfo;
     if (vbitmap == NULL) return nil;
     int width = VbitmapWidth(vbitmap);
@@ -108,7 +113,8 @@ static void freeProviderData(void *info, const void *data, size_t size) {
             break;
         case VBITMAP_COLOR_RGBA:
             grayScale = NO;
-            alphaInfo = kCGImageAlphaNoneSkipLast;
+            // alphaInfo = kCGImageAlphaNoneSkipLast;
+            alphaInfo = kCGImageAlphaLast;
             break;
         case VBITMAP_COLOR_GRAYSCALE:
             grayScale = YES;
@@ -146,7 +152,7 @@ static void freeProviderData(void *info, const void *data, size_t size) {
                                         colorSpace,
                                         bitmapInfo,
                                         provider,NULL,NO,renderingIntent);
-    UIImage *newImage = [[UIImage alloc] initWithCGImage:imageRef];
+    UIImage *newImage = [[UIImage alloc] initWithCGImage:imageRef scale:scale orientation:UIImageOrientationUp];
 
     CGColorSpaceRelease(colorSpace);
     CGDataProviderRelease(provider);
@@ -159,10 +165,10 @@ static void freeProviderData(void *info, const void *data, size_t size) {
 {
   UIImage* img = nil;
   const char* buffer = [data bytes];
-  Ychannel* channel = YchannelInitByteArray(buffer, [data length]);
+  Ychannel* channel = YchannelInitByteArray(buffer, (int) [data length]);
   Vbitmap* bitmap = VbitmapInitMemory(VBITMAP_COLOR_RGBA);
 
-  int rc = YmagineDecodeResize(bitmap, channel, maxWidth, maxHeight, YMAGINE_SCALE_LETTERBOX);
+  int rc = YmagineDecodeResize(bitmap, channel, (int) maxWidth, (int) maxHeight, YMAGINE_SCALE_LETTERBOX);
 
   if (rc >= 0) {
     img = [self createUIImageWithVbitmap:bitmap];
@@ -198,7 +204,7 @@ static void freeProviderData(void *info, const void *data, size_t size) {
         [Ymagine releaseVbitmap: vbitmap];
         return nil;
     }
-    UIImage *img = [Ymagine createUIImageWithVbitmap:vbitmap];
+    UIImage *img = [Ymagine createUIImageWithVbitmap:vbitmap scale:1.0];
     [Ymagine releaseVbitmap: vbitmap];
     return img;
 }
@@ -260,15 +266,108 @@ static void freeProviderData(void *info, const void *data, size_t size) {
     if (count <= 0 || image == nil) return nil;
 
     /* Create Vbitmap for this pixel buffer */
-    Vbitmap *vbitmap = [Ymagine createVbitmapWithUIImage:image withResizeValue:-1 grayScale:YES];
-    if (vbitmap == NULL) return nil;
+    Vbitmap *vbitmap = NULL;
 
     int coords[count*4];
     int scores[count];
     int mindetect = 0;
 
-    int nfound = detect_run(vbitmap, mindetect, (int)count, coords, scores);
+    int nfound = 0;
+    if (false) {
+        vbitmap = [Ymagine createVbitmapWithUIImage:image withResizeValue:-1 grayScale:YES];
+        if (vbitmap == NULL) return nil;
 
+        nfound = detect_run(vbitmap, mindetect, (int)count, coords, scores);
+    } else {
+        vbitmap = [Ymagine createVbitmapWithUIImage:image withResizeValue:-1 grayScale:NO];
+        if (vbitmap == NULL) return nil;
+
+        int w = VbitmapWidth(vbitmap);
+        int h = VbitmapHeight(vbitmap);
+        Cbitmap *cbitmap = CbitmapCreate(vbitmap);
+        int i;
+        nfound = shape_face(cbitmap, -1, (int) count, coords, scores);
+        for (i = 0; i < nfound; i++) {
+#if 0
+            int left, top, right, bottom;
+            int cx, cy;
+
+            int points[256 * 2];
+            int npoints;
+            
+            fprintf(stdout,
+                    " #%d: @(%d,%d)->(%dx%d) score=%d\n",
+                    i+1,
+                    coords[4*i+0],
+                    coords[4*i+1],
+                    coords[4*i+2],
+                    coords[4*i+3],
+                    scores[i]);
+            fflush(stdout);
+            
+            left = (int) coords[4*i+0];
+            top = (int) coords[4*i+1];
+            right = (int) coords[4*i+2];
+            bottom = (int) coords[4*i+3];
+            
+            cx = (left + right) / 2;
+            cy = (top + bottom) / 2;
+            
+            left = cx + ((left - cx) * 110) / 100;
+            top = cy + ((top - cy) * 110) / 100;
+            right = cx + ((right - cx) * 110) / 100;
+            bottom = cy + ((bottom - cy) * 110) / 100;
+            
+            if (left < 0) {
+                left = 0;
+            }
+            if (left > w - 1) {
+                left = w - 1;
+            }
+            if (top < 0) {
+                top = 0;
+            }
+            if (top > h - 1) {
+                top = h - 1;
+            }
+            if (right < 0) {
+                right = 0;
+            }
+            if (right > w - 1) {
+                right = w - 1;
+            }
+            if (bottom < 0) {
+                bottom = 0;
+            }
+            if (bottom > h - 1) {
+                bottom = h - 1;
+            }
+            
+            fprintf(stderr, "Running detection\n");
+            int maxpoints = (int) (sizeof(points) / (2 * sizeof(points[0])));
+            npoints = shape_run(cbitmap, left, top, right - left + 1, bottom - top + 1, points, maxpoints);
+            
+            fprintf(stdout, "Detection of %d parts in image %dx%d\n",
+                    npoints,
+                    VbitmapWidth(vbitmap), VbitmapHeight(vbitmap));
+            fflush(stdout);
+            
+            Ymagine_drawRect(vbitmap, left, top, right - left, bottom - top,
+                             YcolorRGBA(0xff, 0x00, 0x00, 0x40), YMAGINE_COMPOSE_OVER);
+            for (int k = 0; k < npoints; k++) {
+                Ymagine_drawRect(vbitmap,
+                                 points[2 * k] - 1,
+                                 points[2 * k + 1] - 1,
+                                 3, 3,
+                                 YcolorRGBA(0x00, 0xff, 0x00, 0xc0), YMAGINE_COMPOSE_OVER);
+            }
+#endif
+        }
+        
+        CbitmapRelease(cbitmap);
+
+        
+    }
     [Ymagine releaseVbitmap:vbitmap];
 
     if (nfound <= 0) return nil;

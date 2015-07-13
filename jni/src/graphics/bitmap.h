@@ -67,6 +67,10 @@ Vrect*
 computeCropRect(Vrect *croprect, YmagineFormatOptions *options,
                 int width, int height);
 
+Vrect*
+computeRotateRect(Vrect *rotaterect, YmagineFormatOptions *options,
+                  int width, int height);
+
 int
 copyBitmap(unsigned char *ipixels, int iwidth, int iheight, int ipitch,
 	   unsigned char *opixels, int owidth, int oheight, int opitch,

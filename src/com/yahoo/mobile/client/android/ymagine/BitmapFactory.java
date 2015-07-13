@@ -24,6 +24,7 @@ import android.util.TypedValue;
 
 import com.yahoo.ymagine.ByteBufferInputStream;
 import com.yahoo.ymagine.Shader;
+import com.yahoo.ymagine.Vbitmap;
 import com.yahoo.ymagine.Ymagine;
 
 import java.io.BufferedInputStream;
@@ -153,16 +154,21 @@ public class BitmapFactory {
          */
         public Bitmap inBitmap;
 
-        // Filtering option
-        public boolean inFilterBlur;
-        public Shader inShader;
-
         /**
          * Hint for quality vs. speed
          */
         public int inQuality;
-        // Panoramic meta data
-        // Subset of the XMP data described at https://developers.google.com/photo-sphere/metadata/
+
+        /**
+         * Filtering options
+         */
+        public float inBlur;
+        public Shader inShader;
+
+        /**
+         * Panoramic meta data. Subset of the XMP data, see:
+         *   https://developers.google.com/photo-sphere/metadata/
+         */
         public int outPanoMode;
         public int outPanoCroppedWidth;
         public int outPanoCroppedHeight;
@@ -170,6 +176,11 @@ public class BitmapFactory {
         public int outPanoFullHeight;
         public int outPanoX;
         public int outPanoY;
+
+        /**
+         * orientation in degree
+         */
+        public int outOrientation;
 
         /**
          * Default values are set in constructor
@@ -184,11 +195,12 @@ public class BitmapFactory {
             inStream = null;
             // Default to using our native decoder
             inNative = true;
-            // No filter by default
-            inFilterBlur = false;
-            inShader = null;
             // Default to good quality
             inQuality = 80;
+            // No bluring
+            inBlur = 0.0f;
+            // No filter by default
+            inShader = null;
             // No panoramic/sphere by default
             outPanoMode = 0;
             outPanoCroppedWidth = 0;
@@ -197,6 +209,7 @@ public class BitmapFactory {
             outPanoFullHeight = 0;
             outPanoX = 0;
             outPanoY = 0;
+            outOrientation = 0;
         }
     }
 
@@ -206,7 +219,10 @@ public class BitmapFactory {
      * @return true on success
      */
     static public synchronized boolean init(Context context) {
-        return init(context, true);
+        final boolean ignoreErrors = true;
+        final boolean checkTimestamp = false;
+
+        return init(context, ignoreErrors, checkTimestamp);
     }
 
     /**
@@ -215,6 +231,17 @@ public class BitmapFactory {
      * @return true on success
      */
     static public synchronized boolean init(Context context, boolean ignoreErrors) {
+        final boolean checkTimestamp = false;
+
+        return init(context, ignoreErrors, checkTimestamp);
+    }
+
+    /**
+     * Test if the native image processing library was loaded successfully
+     *
+     * @return true on success
+     */
+    static public synchronized boolean init(Context context, boolean ignoreErrors, boolean checkTimestamp) {
         if ( (sHasNative == NativeStatus.UNINITIALIZED) || (sHasNative == NativeStatus.NEED_WORKAROUND && context != null) ) {
             if (context == null) {
                 /*
@@ -247,7 +274,7 @@ public class BitmapFactory {
                 }
             } else {
                 try {
-                    LibraryLoader.loadLibraries(context, false, sNativeLibraries);
+                    LibraryLoader.loadLibraries(context, false, checkTimestamp, sNativeLibraries);
                     sHasNative = NativeStatus.ENABLED;
                 } catch (UnsatisfiedLinkError e) {
                     sHasNative = NativeStatus.DISABLED;
@@ -360,10 +387,9 @@ public class BitmapFactory {
 
         try {
             stream = new ByteArrayInputStream(data, offset, length);
-            bm = doDecode(stream, outPadding, opts);
+            bm = doDecode(stream, null, outPadding, opts);
         } catch (Exception e) {
-            // On error, silently fall back to returning null
-       } finally {
+        } finally {
             if (stream != null) {
                 try {
                     stream.close();
@@ -402,8 +428,8 @@ public class BitmapFactory {
      * opts and given output padding.
      * 
      * @param data input byte array
-     * @param opts Options to use during decoding
      * @param outPadding output padding
+     * @param opts Options to use during decoding
      * @return bitmap created from ByteBuffer
      */
     public static Bitmap decodeByteBuffer(ByteBuffer data,
@@ -451,7 +477,7 @@ public class BitmapFactory {
 
         try {
             stream = new FileInputStream(new File(pathName));
-            bm = doDecode(stream, outPadding, opts);
+            bm = doDecode(stream, null, outPadding, opts);
         } catch (Exception e) {
             // On error, silently fallback to returning null
         } finally {
@@ -492,7 +518,7 @@ public class BitmapFactory {
 
         try {
             stream = new FileInputStream(fd);
-            bm = doDecode(stream, outPadding, opts);
+            bm = doDecode(stream, null, outPadding, opts);
         } catch (Exception e) {
             // On error, silently fallback to returning null
         } finally {
@@ -604,7 +630,7 @@ public class BitmapFactory {
      */
     public static Bitmap decodeStream(InputStream is,
             Rect outPadding, BitmapFactory.Options opts) {
-        return doDecode(is, outPadding, opts);
+        return doDecode(is, null, outPadding, opts);
     }
 
     /**
@@ -696,6 +722,46 @@ public class BitmapFactory {
         opts.inBitmap = null;
 
         return decodeStream(is, null, opts);
+    }
+    
+    /**
+     * Decode (actually copy) a Vbitmap into a Android Bitmap
+     *
+     * @param vbitmap source image
+     * @param outPadding output padding
+     * @param opts Options to use during decoding
+     * @return bitmap created from Vbitmap
+     */
+    public static Bitmap decodeVbitmap(Vbitmap vbitmap, Rect outPadding, BitmapFactory.Options opts) {
+        Bitmap bm = null;
+
+        try {
+            bm = doDecode(null, vbitmap, outPadding, opts);
+        } catch (Exception e) {
+            // On error, silently fall back to returning null
+       }
+       return bm;
+    }
+
+    /**
+     * Decode (actually copy) a Vbitmap into a Android Bitmap
+     *
+     * @param vbitmap source image
+     * @param opts Options to use during decoding
+     * @return bitmap created from Vbitmap
+     */
+    public static Bitmap decodeVbitmap(Vbitmap vbitmap, BitmapFactory.Options opts) {
+        return decodeVbitmap(vbitmap, null, opts);
+    }
+
+    /**
+     * Decode (actually copy) a Vbitmap into a Android Bitmap
+     *
+     * @param vbitmap source image
+     * @return bitmap created from Vbitmap
+     */
+    public static Bitmap decodeVbitmap(Vbitmap vbitmap) {
+        return decodeVbitmap(vbitmap, null, null);
     }
 
     /**
@@ -906,6 +972,38 @@ public class BitmapFactory {
         return (native_applyShader(bitmap, shader) >= 0);
     }
 
+    /**
+     * Create a orb canvas
+     * @param bitmap bitmap to render orb into. If null, new bitmap will be created
+     * @param size width and height of the orb
+     * @return Bitmap with orb shape, or null on failure
+     */
+    public static Bitmap orbCreate(Bitmap bitmap, int size) {
+        if (!hasNative()) {
+            return null;
+        }
+
+        return native_createOrb(bitmap, size);
+    }
+
+    /**
+     * Create a orb canvas
+     * @param bitmap bitmap to render tiles into
+     * @param infiles array of file names for tiles to render
+     * @return number of tiles successfully rendered
+     */
+    public static int orbRenderTile(Bitmap bitmap, int ntiles, int tileid, InputStream stream) {
+        if (!hasNative()) {
+            return 0;
+        }
+
+        if (native_renderOrbTile(bitmap, ntiles, tileid, stream) < 0) {
+            return 0;
+        }
+
+        return 1;
+    }
+
     // Debug helper to log full call stack
     private static void dumpStack(int minlevel) {
         final int skipstack = 3 + minlevel;
@@ -943,14 +1041,13 @@ public class BitmapFactory {
      * are provided to support different arguments, but end up calling this
      * method
      */
-    private static Bitmap doDecode(InputStream instream,
+    private static Bitmap doDecode(InputStream instream, Vbitmap invbitmap,
             Rect outPadding, BitmapFactory.Options opts)
     {
         Bitmap bm = null;
         long startDecode, endDecode;
         boolean trysystem = true;
         boolean completed = false;
-        Bitmap inBitmap = null;
         int reqWidth = -1;
         int reqHeight = -1;
         int scaleMode = 0;
@@ -978,47 +1075,58 @@ public class BitmapFactory {
             } else {
                 scaleMode = SCALE_LETTERBOX;
             }
-            inBitmap = opts.inBitmap;
             quality = opts.inQuality;
         }
 
+        ImageFormat informat = ImageFormat.UNKNOWN;
+
         BufferedInputStream bufferedstream = null;
-        byte[] inheader = new byte[128];
-        int nbytes = -1;
+        if (instream != null) {
+            byte[] inheader = new byte[128];
+            int nbytes = -1;
 
-        try {
-            bufferedstream = new BufferedInputStream(instream, 4 * 1024);
-            bufferedstream.mark(inheader.length);
-            nbytes = bufferedstream.read(inheader, 0, inheader.length);
-            bufferedstream.reset();
-        } catch (IOException e1) {
-            Log.d(LOG_TAG, "Failed to read image magic header" + e1.getMessage());
-            // e1.printStackTrace();
-            nbytes = -1;
-        }
-
-        if (nbytes < 0) {
-            /* Failed to determine image format due to I/O error, abort */
-            if (bufferedstream != null) {
-                try {
-                    bufferedstream.close();
-                } catch (IOException e) {
-                }
+            try {
+                bufferedstream = new BufferedInputStream(instream, 4 * 1024);
+                bufferedstream.mark(inheader.length);
+                nbytes = bufferedstream.read(inheader, 0, inheader.length);
+                bufferedstream.reset();
+            } catch (IOException e1) {
+                Log.d(LOG_TAG, "Failed to read image magic header" + e1.getMessage());
+                // e1.printStackTrace();
+                nbytes = -1;
             }
-            return bm;
-        }
 
-        // Try to extract image format from input stream
-        ImageFormat informat = getImageFormat(inheader, nbytes);
+            if (nbytes < 0) {
+                /* Failed to determine image format due to I/O error, abort */
+                if (bufferedstream != null) {
+                    try {
+                        bufferedstream.close();
+                    } catch (IOException e) {
+                    }
+                }
+                return bm;
+            }
+
+            // Try to extract image format from input stream
+            informat = getImageFormat(inheader, nbytes);
+        }
 
         if (useNative) {
-            if (informat == ImageFormat.JPEG || informat == ImageFormat.WEBP ||
-                informat == ImageFormat.PNG || informat == ImageFormat.GIF) {
+            if (invbitmap != null) {
+                bm = native_decodeVbitmapOptions(invbitmap, opts);
+                if (bm != null) {
+                    completed = true;
+                } else if (opts != null && opts.inJustDecodeBounds) {
+                    completed = true;
+                }
+            } else if ( ( bufferedstream != null ) &&
+                        ( informat == ImageFormat.JPEG || informat == ImageFormat.WEBP ||
+                          informat == ImageFormat.PNG || informat == ImageFormat.GIF) ) {
                 if (opts != null && opts.inStream != null) {
                     // Run image transcoding, saving output as another
                     // jpeg image into stream
                     native_transcodeStream(bufferedstream, opts.inStream, reqWidth, reqHeight,
-                                           scaleMode, quality);
+                            scaleMode, quality);
                     completed = true;
                 } else {
                     bm = native_decodeStreamOptions(bufferedstream, opts);
@@ -1032,7 +1140,7 @@ public class BitmapFactory {
         }
 
         if (!completed) {
-            if (trysystem) {
+            if (trysystem && bufferedstream != null) {
                 // Fall back to standard BitmapFactory API
                 if (opts == null) {
                     /* No special option requested, system decoder is compatible */
@@ -1150,7 +1258,7 @@ public class BitmapFactory {
             }
         }
 
-        /* Vbitmap supports only RGBA config, enforce it */
+        /* Vbitmap supports only ARGB config, enforce it */
         if (bitmap != null && bitmap.getConfig() != Bitmap.Config.ARGB_8888) {
             bitmap = bitmap.copy(Config.ARGB_8888, true);
         }
@@ -1166,6 +1274,9 @@ public class BitmapFactory {
     Bitmap bitmap, int maxWidth, int maxHeight, int scalemode);
 
     private static native Bitmap native_decodeStreamOptions(InputStream is,
+            BitmapFactory.Options opts);
+
+    private static native Bitmap native_decodeVbitmapOptions(Vbitmap ibitmap,
             BitmapFactory.Options opts);
 
     private static native Bitmap native_copyBitmap(Bitmap refbitmap,
@@ -1188,4 +1299,7 @@ public class BitmapFactory {
     private static native int native_compose(Bitmap bitmap, int color, int composeMode);
 
     private static native int native_applyShader(Bitmap bitmap, Shader shader);
+
+    private static native Bitmap native_createOrb(Bitmap bitmap, int size);
+    private static native int native_renderOrbTile(Bitmap bitmap, int ntiles, int tileid, InputStream stream);
 }

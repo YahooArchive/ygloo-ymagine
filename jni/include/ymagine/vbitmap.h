@@ -45,6 +45,28 @@ extern "C" {
 #define VBITMAP_COLOR_RGB           1
 #define VBITMAP_COLOR_GRAYSCALE     2
 #define VBITMAP_COLOR_YUV           3
+#define VBITMAP_COLOR_CMYK          4
+#define VBITMAP_COLOR_rgbA          5
+#define VBITMAP_COLOR_YCbCr         6
+#define VBITMAP_COLOR_ARGB          7
+#define VBITMAP_COLOR_Argb          8
+
+#define VBITMAP_ORIENTATION_UNDEFINED 0
+#define VBITMAP_ORIENTATION_DEFAULT 1
+/* horizontal flip */
+#define VBITMAP_ORIENTATION_FLIP_HORIZONTAL 2
+/* rotate 180 degree counter-clockwise */
+#define VBITMAP_ORIENTATION_ROTATE_180 3
+/* vertical flip */
+#define VBITMAP_ORIENTATION_FLIP_VERTICAL 4
+/* flipped about top-left - bottom-right axis */
+#define VBITMAP_ORIENTATION_TRANSPOSE 5
+/* rotate 90 degree counter-clockwise */
+#define VBITMAP_ORIENTATION_ROTATE_90 6
+/* flipped about top-right - bottom-left axis */
+#define VBITMAP_ORIENTATION_TRANSVERSE 7
+/* rotate 270 degree counter-clockwise */
+#define VBITMAP_ORIENTATION_ROTATE_270 8
 
 YOSAL_OBJECT_EXPORT(Vbitmap)
 typedef struct VbitmapXmpStruct VbitmapXmp;
@@ -371,6 +393,27 @@ VbitmapSetXMP(Vbitmap *vbitmap, VbitmapXmp *xmp);
  */
 VbitmapXmp*
 VbitmapGetXMP(Vbitmap *vbitmap);
+
+/**
+ * @brief Get orientation for this bitmap
+ *
+ * @param vbitmap to get orientation
+ *
+ * @return orientation
+ */
+int
+VbitmapGetOrientation(Vbitmap *vbitmap);
+
+/**
+ * @brief Set orientation for this bitmap
+ *
+ * @param vbitmap to set orientation
+ * @param orientation orientation
+ *
+ * @return If succesful YMAGINE_OK, otherwise YMAGINE_ERROR
+ */
+int
+VbitmapSetOrientation(Vbitmap *vbitmap, int orientation);
 
 /**
  * @brief Compute peak signal-to-noise ratio for two vbitmap

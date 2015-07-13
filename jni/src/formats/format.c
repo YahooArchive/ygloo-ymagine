@@ -32,6 +32,13 @@ static const char* scaleModes[] = {
   "?"
 };
 
+// #define YMAGINE_PROFILE 1
+
+#if YMAGINE_PROFILE
+#define NSTYPE nsecs_t
+#define NSTIME() ((NSTYPE) Ytime(YTIME_CLOCK_REALTIME))
+#endif
+
 const char*
 Ymagine_scaleModeStr(int scalemode)
 {
@@ -73,6 +80,10 @@ YmagineFormatOptions_Duplicate(YmagineFormatOptions* refopts)
 {
   YmagineFormatOptions *options;
   
+  if (refopts == NULL) {
+    return YmagineFormatOptions_Create();
+  }
+
   options = Ymem_malloc(sizeof(YmagineFormatOptions));
   if (options == NULL) {
     return NULL;
@@ -117,10 +128,12 @@ YmagineFormatOptions_Reset(YmagineFormatOptions *options)
   options->maxwidth = -1;
   options->maxheight = -1;
   options->scalemode = YMAGINE_SCALE_CROP;
+  options->adjustmode = YMAGINE_ADJUST_NONE;
   options->resizable = 1;
   options->quality = -1;
   options->accuracy = -1;
   options->subsampling = -1;
+  options->progressive = -1;
   options->sharpen = 0.0f;
   options->blur = 0.0f;
   options->rotate = 0.0f;
@@ -190,6 +203,19 @@ YmagineFormatOptions_setSubsampling(YmagineFormatOptions *options,
 }
 
 YmagineFormatOptions*
+YmagineFormatOptions_setProgressive(YmagineFormatOptions *options,
+                                    int progressive)
+{
+  if (options == NULL) {
+    return NULL;
+  }
+
+  options->progressive = progressive;
+
+  return options;
+}
+
+YmagineFormatOptions*
 YmagineFormatOptions_setSharpen(YmagineFormatOptions *options,
                                 float sigma)
 {
@@ -239,6 +265,28 @@ YmagineFormatOptions_setResize(YmagineFormatOptions *options,
   options->maxwidth = maxWidth;
   options->maxheight = maxHeight;
   options->scalemode = scaleMode;
+
+  return options;
+}
+
+YmagineFormatOptions*
+YmagineFormatOptions_setAdjust(YmagineFormatOptions *options,
+                               int adjustmode)
+{
+  if (options == NULL) {
+    return NULL;
+  }
+
+  switch (adjustmode) {
+  case YMAGINE_ADJUST_NONE:
+  case YMAGINE_ADJUST_INNER:
+  case YMAGINE_ADJUST_OUTER:
+    options->adjustmode = adjustmode;
+    break;
+  default:
+    ALOGD("invalid adjust mode %d", adjustmode);
+    break;
+  }
 
   return options;
 }
@@ -474,8 +522,97 @@ YmagineFormat(Ychannel *channel)
   return YMAGINE_IMAGEFORMAT_UNKNOWN;
 }
 
-int
-YmagineDecode(Vbitmap *bitmap, Ychannel *channel,
+static int
+decodeBitmap(Vbitmap *src, Vbitmap *vbitmap, YmagineFormatOptions *options)
+{
+  Transformer *transformer = NULL;
+  int i;
+  int nlines = -1;
+  float sharpen = 0.0f;
+  PixelShader *shader = NULL;
+  int origWidth, origHeight;
+  Vrect srcrect;
+  Vrect destrect;
+  int srcpitch;
+  const char* srcpixels;
+  int rc;
+
+  if (options == NULL) {
+    /* Options argument is mandatory */
+    return nlines;
+  }
+
+  if (src == NULL) {
+    /* No source bitmap to copy */
+    return nlines;
+  }
+
+  origWidth = VbitmapWidth(src);
+  origHeight = VbitmapHeight(src);
+
+  if (YmagineFormatOptions_invokeCallback(options, YMAGINE_IMAGEFORMAT_UNKNOWN,
+                                          origWidth, origHeight) != YMAGINE_OK) {
+    return nlines;
+  }
+
+  if (YmaginePrepareTransform(vbitmap, options,
+                              origWidth, origHeight,
+                              &srcrect, &destrect) != YMAGINE_OK) {
+    return nlines;
+  }
+
+  sharpen = options->sharpen;
+  shader = options->pixelshader;
+
+  /* Resize target bitmap */
+  if (options->resizable) {
+    destrect.x = 0;
+    destrect.y = 0;
+    if (VbitmapResize(vbitmap, destrect.width, destrect.height) != YMAGINE_OK) {
+      return nlines;
+    }
+  }
+  if (VbitmapType(vbitmap) == VBITMAP_NONE) {
+    /* Decode bounds only, return positive number (number of lines) on success */
+    return VbitmapHeight(vbitmap);
+  }
+
+  transformer = TransformerCreate();
+
+  TransformerSetMode(transformer, VbitmapColormode(src), VbitmapColormode(vbitmap));
+  TransformerSetScale(transformer, srcrect.width, srcrect.height, destrect.width, destrect.height);
+  TransformerSetRegion(transformer,
+                       srcrect.x, srcrect.y, srcrect.width, srcrect.height);
+
+  TransformerSetBitmap(transformer, vbitmap, destrect.x, destrect.y);
+  TransformerSetShader(transformer, shader);
+  TransformerSetSharpen(transformer, sharpen);
+
+  rc = VbitmapLock(src);
+  if (rc == YMAGINE_OK) {
+    srcpitch = VbitmapPitch(src);
+    srcpixels = (const char*) VbitmapBuffer(src);
+
+    nlines = 0;
+    for (i = 0; i < origHeight; i++) {
+      if (TransformerPush(transformer, srcpixels + i * srcpitch) != YMAGINE_OK) {
+        nlines = -1;
+        break;
+      }
+      nlines++;
+    }
+    VbitmapUnlock(src);
+  }
+
+  if (transformer != NULL) {
+    TransformerRelease(transformer);
+  }
+
+  return nlines;
+}
+
+static int
+decodeGeneric(Vbitmap *bitmap, Ychannel *channel, Vbitmap *srcbitmap,
               YmagineFormatOptions *options)
 {
   int rc = YMAGINE_ERROR;
@@ -483,9 +620,17 @@ YmagineDecode(Vbitmap *bitmap, Ychannel *channel,
   int default_options = 0;
   Vbitmap *decodebitmap;
   YmagineFormatOptions *decodeoptions;
+#if YMAGINE_PROFILE
+  NSTYPE start = 0;
+  NSTYPE end = 0;
 
-  if (!YchannelReadable(channel)) {
-    return YMAGINE_ERROR;
+  start = NSTIME();
+#endif
+
+  if (channel != NULL) {
+    if (!YchannelReadable(channel)) {
+      return YMAGINE_ERROR;
+    }
   }
 
   if (options == NULL) {
@@ -526,21 +671,25 @@ YmagineDecode(Vbitmap *bitmap, Ychannel *channel,
     decodebitmap = bitmap;
   }
 
-  /* Find format of input */
-  if (matchJPEG(channel)) {
-    /* JPEG */
-    nlines = decodeJPEG(channel, decodebitmap, decodeoptions);
-  } else if (matchWEBP(channel)) {
-    /* WEBP */
-    nlines = decodeWEBP(channel, decodebitmap, decodeoptions);
-  } else if (matchGIF(channel)) {
-    /* GIF */
-    nlines = decodeGIF(channel, decodebitmap, decodeoptions);
-  } else if (matchPNG(channel)) {
-    /* PNG */
-    nlines = decodePNG(channel, decodebitmap, decodeoptions);
+  if (channel != NULL) {
+    /* Find format of input */
+    if (matchJPEG(channel)) {
+      /* JPEG */
+      nlines = decodeJPEG(channel, decodebitmap, decodeoptions);
+    } else if (matchWEBP(channel)) {
+      /* WEBP */
+      nlines = decodeWEBP(channel, decodebitmap, decodeoptions);
+    } else if (matchGIF(channel)) {
+      /* GIF */
+      nlines = decodeGIF(channel, decodebitmap, decodeoptions);
+    } else if (matchPNG(channel)) {
+      /* PNG */
+      nlines = decodePNG(channel, decodebitmap, decodeoptions);
+    } else {
+      nlines = -1;
+    }
   } else {
-    nlines = -1;
+    nlines = decodeBitmap(srcbitmap, decodebitmap, decodeoptions);
   }
 
   if (decodeoptions != options) {
@@ -560,13 +709,16 @@ YmagineDecode(Vbitmap *bitmap, Ychannel *channel,
         int centerx;
         int centery;
         Vrect croprect;
+        Vrect rotaterect;
 
         computeCropRect(&croprect, options, width, height);
+        computeRotateRect(&rotaterect, options, croprect.width, croprect.height);
+
         centerx = croprect.x + (croprect.width / 2);
         centery = croprect.y + (croprect.height / 2);
 
-        VbitmapResize(bitmap, croprect.width, croprect.height);
-        rc = Ymagine_rotate(decodebitmap, bitmap, centerx, centery, options->rotate);
+        VbitmapResize(bitmap, rotaterect.width, rotaterect.height);
+        rc = Ymagine_rotate(bitmap, decodebitmap, centerx, centery, options->rotate);
       }
     } else {
       rc = YMAGINE_OK;
@@ -587,7 +739,25 @@ YmagineDecode(Vbitmap *bitmap, Ychannel *channel,
     options = NULL;
   }
 
+#if YMAGINE_PROFILE
+  end = NSTIME();
+  ALOGI("image decoded in %.2f ms", ((double) (end - start)) / 1000000.0);
+#endif
+
   return rc;
+}
+
+int
+YmagineDecodeCopy(Vbitmap *bitmap, Vbitmap *srcbitmap, YmagineFormatOptions *options)
+{
+  return decodeGeneric(bitmap, NULL, srcbitmap, options);
+}
+
+int
+YmagineDecode(Vbitmap *bitmap, Ychannel *channel,
+              YmagineFormatOptions *options)
+{
+  return decodeGeneric(bitmap, channel, NULL, options);
 }
 
 int
@@ -633,8 +803,6 @@ YmagineTranscode(Ychannel *channelin, Ychannel *channelout,
   int rc = YMAGINE_ERROR;
   int iformat;
   Vbitmap* vbitmap;
-  float rotate = 0.0f;
-  float blur = 0.0f;
 
   if (channelin == NULL || channelout == NULL) {
     return rc;
@@ -646,14 +814,7 @@ YmagineTranscode(Ychannel *channelin, Ychannel *channelout,
     return rc;
   }
 
-  if (options != NULL) {
-    rotate = options->rotate;
-    blur = options->blur;
-  }
-
-  if ( ( rotate == 0.0f ) &&
-       ( blur == 0.0f ) &&
-       ( iformat == YMAGINE_IMAGEFORMAT_JPEG ) &&
+  if ( ( iformat == YMAGINE_IMAGEFORMAT_JPEG ) &&
        ( options->format == YMAGINE_IMAGEFORMAT_JPEG ||
          options->format == YMAGINE_IMAGEFORMAT_UNKNOWN ) ) {
     /* Transcode JPEG into JPEG using optimized code path */
@@ -664,7 +825,17 @@ YmagineTranscode(Ychannel *channelin, Ychannel *channelout,
     rc = YmagineDecode(vbitmap, channelin, options);
 
     if (rc == YMAGINE_OK) {
-      rc = YmagineEncode(vbitmap, channelout, options);
+      YmagineFormatOptions *outoptions = YmagineFormatOptions_Duplicate(options);
+      if (outoptions == NULL) {
+        rc = YMAGINE_ERROR;
+      } else {
+        if (outoptions->format == YMAGINE_IMAGEFORMAT_UNKNOWN) {
+          YmagineFormatOptions_setFormat(outoptions, iformat);
+        }
+
+        rc = YmagineEncode(vbitmap, channelout, outoptions);
+        YmagineFormatOptions_Release(outoptions);
+      }
     }
 
     VbitmapRelease(vbitmap);
@@ -681,6 +852,13 @@ YmagineEncode(Vbitmap *bitmap, Ychannel *channel,
   int format = YMAGINE_IMAGEFORMAT_UNKNOWN;
   int rc = YMAGINE_ERROR;
   YBOOL defaultoptions = YFALSE;
+#if YMAGINE_PROFILE
+  NSTYPE start = 0;
+  NSTYPE end = 0;
+
+  start = NSTIME();
+#endif
+
 
   if (options == NULL) {
     options = YmagineFormatOptions_Create();
@@ -717,6 +895,11 @@ YmagineEncode(Vbitmap *bitmap, Ychannel *channel,
     YmagineFormatOptions_Release(options);
     options = NULL;
   }
+
+#if YMAGINE_PROFILE
+  end = NSTIME();
+  ALOGI("image encoded in %.2f ms", ((double) (end - start)) / 1000000.0);
+#endif
 
   return rc;
 }

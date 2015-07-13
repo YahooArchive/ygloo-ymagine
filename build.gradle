@@ -1,14 +1,20 @@
 group = 'com.yahoo.android.base'
-version = '0.4.0'
+version = '0.6.6'
 project.ext.artifactId = 'ymagine'
 
-apply from: new File(project(':gradle-yahoo-tasks').projectDir, 'base.gradle')
-apply from: new File(project(':gradle-yahoo-tasks').projectDir, 'baseSourceSets.gradle')
+apply plugin: 'com.android.library'
 
 android {
     sourceSets {
         main {
             jniLibs.srcDirs = ['libs']
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['src', 'gen']
+            resources.srcDirs = ['src']
+            aidl.srcDirs = ['src']
+            renderscript.srcDirs = ['src']
+            res.srcDirs = ['res']
+            assets.srcDirs = ['assets']
         }
     }
 }

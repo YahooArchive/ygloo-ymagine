@@ -18,6 +18,9 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <setjmp.h>
+#include <math.h>
+
+#define R_PI 3.14159265f
 
 #include "yosal/yosal.h"
 #include "ymagine_priv.h"
@@ -156,6 +159,60 @@ computeCropRect(Vrect *croprect, YmagineFormatOptions *options,
   VrectComputeIntersection(&full, &current, croprect);
 
   return croprect;
+}
+
+Vrect*
+computeRotateRect(Vrect *rotaterect, YmagineFormatOptions *options,
+                  int width, int height)
+{
+  float anglerad;
+  float sina, cosa;
+  int destwidth;
+  int destheight;
+
+  if (rotaterect == NULL) {
+    return NULL;
+  }
+
+  if (width < 0) {
+    width = 0;
+  }
+  if (height < 0) {
+    height = 0;
+  }
+
+  rotaterect->x = 0;
+  rotaterect->y = 0;
+
+  /* Default to copying input resolution */
+  destwidth = width;
+  destheight = height;
+
+  if (options != NULL && options->rotate != 0.0f && options->resizable) {
+    if (options->adjustmode == YMAGINE_ADJUST_OUTER) {
+      /* Compute outbound after rotation */
+      anglerad = (options->rotate * R_PI) / 180.0f;
+      sina = (float) sin(anglerad);
+      cosa = (float) cos(anglerad);
+
+      destwidth = (int) (cosa * width + sina * height);
+      destheight = (int) (sina * width + cosa * height);
+
+      if (destwidth < 0) {
+        destwidth = - destwidth;
+      }
+      if (destheight < 0) {
+        destheight = - destheight;
+      }
+    } else if (options->adjustmode == YMAGINE_ADJUST_INNER) {
+      /* TODO: compute inner size */
+    }
+  }
+
+  rotaterect->width = destwidth;
+  rotaterect->height = destheight;
+
+  return rotaterect;
 }
 
 /* Transform constraints on source and origin into origin and destination regions */

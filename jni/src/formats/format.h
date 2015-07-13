@@ -31,10 +31,12 @@ struct YmagineFormatOptionsStruct {
   int maxwidth;
   int maxheight;
   int scalemode;
+  int adjustmode;
   int resizable;
   int quality;
   int accuracy;
   int subsampling;
+  int progressive;
   float sharpen;
   float rotate;
   float blur;

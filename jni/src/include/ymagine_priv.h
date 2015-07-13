@@ -40,6 +40,7 @@
 
 /* Private API */
 #include "formats/format.h"
+#include "formats/jpeg/exif.h"
 #include "graphics/fixedpoint.h"
 #include "graphics/xmp.h"
 #include "graphics/region.h"

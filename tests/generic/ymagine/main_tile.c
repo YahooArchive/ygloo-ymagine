@@ -13,13 +13,13 @@
 #include "ymagine_main.h"
 
 int
-usage_transcode()
+usage_tile()
 {
-  fprintf(stdout, "usage: ymagine transcode\\\n"
-          "?-width <integer> - output max width\\\n"
-          "?-height <integer> - output max height\\\n"
-          "?-crop <string> - crop region, following <width>x<height>@<x>,<y> pattern. Example: -crop 100x150@0,65\\\n"
-          "?-cropr <string> - cropr region, following <width>x<height>@<x>,<y> pattern. Example: -cropr 0.5x0.5@0.1,0.1\\\n"
+  fprintf(stdout, "usage: ymagine tile \\\n"
+          "?-width <integer> - output max width \\\n"
+          "?-height <integer> - output max height \\\n"
+          "?-crop <string> - crop region, following <width>x<height>@<x>,<y> pattern. Example: -crop 100x150@0,65 \\\n"
+          "?-cropr <string> - cropr region, following <width>x<height>@<x>,<y> pattern. Example: -cropr 0.5x0.5@0.1,0.1 \\\n"
           "infile outfile\n");
   fflush(stdout);
 
@@ -50,10 +50,9 @@ progressCallback(YmagineFormatOptions *options,
 }
 
 int
-main_transcode(int argc, const char* argv[])
+main_tile(int argc, const char* argv[])
 {
   Ychannel *channelin;
-  Ychannel *channelout;
   Ychannel *channelpreset;
   int fdin = -1;
   int fdout = -1;
@@ -65,12 +64,12 @@ main_transcode(int argc, const char* argv[])
   int profile = 0;
   int fmode;
   int rc = 0;
-  int decodeonly = 0;
   const char *infile = NULL;
   const char *outfile = NULL;
   const char *presetFile = NULL;
   int maxWidth = -1;
   int maxHeight = -1;
+  int tileSize = -1;
   /* scaleMode can be YMAGINE_SCALE_CROP or YMAGINE_SCALE_LETTERBOX */
   int scaleMode = YMAGINE_SCALE_LETTERBOX;
   /* Fit mode */
@@ -100,12 +99,11 @@ main_transcode(int argc, const char* argv[])
 
   NSTYPE start = 0;
   NSTYPE end = 0;
-  NSTYPE start_transcode = 0;
-  NSTYPE end_transcode = 0;
-  NSTYPE total_transcode;
-  int i;
+  NSTYPE start_decode = 0;
+  NSTYPE end_decode = 0;
+  NSTYPE total_decode;
+  int i, j;
   char *writebuf = NULL;
-  int writebuflen = 0;
   int niters = 1;
   int iter;
   int iformat = YMAGINE_IMAGEFORMAT_UNKNOWN;
@@ -113,9 +111,15 @@ main_transcode(int argc, const char* argv[])
   YmagineFormatOptions *options = NULL;
   privateOptions *pdata = NULL;
   int dynamicopts = 0;
+  Vbitmap *vbitmap = NULL;
+  int ntiles = 0;
+  int bwidth = 0;
+  int bheight = 0;
+  int scale;
+  int scalelevel;
 
   if (argc < 1) {
-    usage_transcode();
+    usage_tile();
     return 1;
   }
 
@@ -144,6 +148,14 @@ main_transcode(int argc, const char* argv[])
       }
       i++;
       maxHeight = atoi(argv[i]);
+    } else if (argv[i][1] == 't' && strcmp(argv[i], "-tile") == 0) {
+      if (i+1 >= argc) {
+        fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
+        fflush(stdout);
+        return 1;
+      }
+      i++;
+      tileSize = atoi(argv[i]);
     } else if (argv[i][1] == 'r' && strcmp(argv[i], "-repeat") == 0) {
       if (i+1 >= argc) {
         fprintf(stdout, "missing value after option \"%s\"\n", argv[i]);
@@ -180,8 +192,6 @@ main_transcode(int argc, const char* argv[])
         oformat = YMAGINE_IMAGEFORMAT_WEBP;
       } else if (strcmp(argv[i], "png") == 0) {
         oformat = YMAGINE_IMAGEFORMAT_PNG;
-      } else if (strcmp(argv[i], "none") == 0) {
-        decodeonly = 1;
       } else {
         oformat = YMAGINE_IMAGEFORMAT_UNKNOWN;
       }
@@ -364,7 +374,7 @@ main_transcode(int argc, const char* argv[])
   }
 
   if (i >= argc) {
-    usage_transcode();
+    usage_tile();
     return 1;
   }
 
@@ -382,7 +392,7 @@ main_transcode(int argc, const char* argv[])
     niters = 1;
   }
 
-  total_transcode = 0;
+  total_decode = 0;
   start = NSTIME();
   for (iter = 0; iter < niters; iter++) {
     fdin = open(infile, O_RDONLY | O_BINARY);
@@ -425,151 +435,217 @@ main_transcode(int argc, const char* argv[])
       }
     }
 
-    if (decodeonly) {
-      fdout = -1;
-      fileout = NULL;
-    } else if (outfile == NULL) {
-#if 0
-      fdout = STDOUT_FILENO;
-#else
-      fileout = stdout;
-#endif
-      closeout = 0;
-    } else {
-      // fileout = fopen(outfile, "wb");
-      if (fileout == NULL) {
-        fdout = open(outfile, fmode, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-      }
-      if (fdout < 0 && fileout == NULL) {
-        if (closein) {
-          close(fdin);
-        }
-
-        fprintf(stdout, "failed to open output file \"%s\"\n", outfile);
-        fflush(stdout);
-        return 1;
-      }
-      closeout = 1;
-
-      if (fileout != NULL) {
-        if (writebuflen > 0) {
-          writebuf = Ymem_malloc(writebuflen);
-          if (writebuf != NULL) {
-            if (setvbuf(fileout, writebuf, _IOFBF, writebuflen) != 0) {
-              // Error setting write buffer. Ignore and fallback to default buffering
-              Ymem_free(writebuf);
-              writebuf = NULL;
-            }
-          }
-        }
-      }
-    }
+    fdout = -1;
+    fileout = NULL;
 
     channelin = YchannelInitFd(fdin, 0);
     if (channelin == NULL) {
       fprintf(stdout, "failed to create input stream\n");
       fflush(stdout);
     } else {
-      if (decodeonly) {
-        channelout = NULL;
-      } else if (fileout != NULL) {
-        channelout = YchannelInitFile(fileout, 1);
-      } else {
-        channelout = YchannelInitFd(fdout, 1);
+      /* Identify format for input image */
+      iformat = YmagineFormat(channelin);
+      if (oformat == YMAGINE_IMAGEFORMAT_UNKNOWN) {
+        if (iformat == YMAGINE_IMAGEFORMAT_WEBP) {
+          oformat = YMAGINE_IMAGEFORMAT_WEBP;
+        } else if (iformat == YMAGINE_IMAGEFORMAT_PNG) {
+          oformat = YMAGINE_IMAGEFORMAT_PNG;
+        } else {
+          oformat = YMAGINE_IMAGEFORMAT_JPEG;
+        }
       }
 
-      if (!decodeonly && channelout == NULL) {
-        fprintf(stdout, "failed to create output stream\n");
-        fflush(stdout);
-      } else {
-        /* Identify format for input image */
-        iformat = YmagineFormat(channelin);
-        if (oformat == YMAGINE_IMAGEFORMAT_UNKNOWN) {
-          if (iformat == YMAGINE_IMAGEFORMAT_WEBP) {
-            oformat = YMAGINE_IMAGEFORMAT_WEBP;
-          } else if (iformat == YMAGINE_IMAGEFORMAT_PNG) {
-            oformat = YMAGINE_IMAGEFORMAT_PNG;
-          } else {
-            oformat = YMAGINE_IMAGEFORMAT_JPEG;
+      options = YmagineFormatOptions_Create();
+      if (options != NULL) {
+        YmagineFormatOptions_setFormat(options, oformat);
+        YmagineFormatOptions_setResize(options, maxWidth, maxHeight, scaleMode);
+        YmagineFormatOptions_setShader(options, shader);
+        YmagineFormatOptions_setQuality(options, quality);
+        YmagineFormatOptions_setAccuracy(options, accuracy);
+        YmagineFormatOptions_setMetaMode(options, metaMode);
+        if (subsampling >= 0) {
+          YmagineFormatOptions_setSubsampling(options, subsampling);
+        }
+        if (progressive >= 0) {
+          YmagineFormatOptions_setProgressive(options, progressive);
+        }
+        if (sharpen > 0.0f) {
+          YmagineFormatOptions_setSharpen(options, sharpen);
+        }
+        if (blur > 0.0f) {
+          YmagineFormatOptions_setBlur(options, blur);
+        }
+        if (rotate != 0.0f) {
+          YmagineFormatOptions_setRotate(options, rotate);
+        }
+        YmagineFormatOptions_setAdjust(options, adjustMode);
+
+        if (absolutecrop) {
+          YmagineFormatOptions_setCrop(options, cropx, cropy, cropw, croph);
+        } else if (relativecrop) {
+          YmagineFormatOptions_setCropRelative(options, cropxp, cropyp, cropwp, crophp);
+        }
+
+        /* Set our callback for testing (no-op) */
+        if (dynamicopts) {
+          pdata = Ymem_malloc(sizeof(privateOptions));
+          if (pdata != NULL) {
+            /* Force arbitrary mode to have callback set a custom crop region */
+            pdata->mode = 1;
+            YmagineFormatOptions_setData(options, pdata);
           }
         }
 
-        options = YmagineFormatOptions_Create();
-        if (options != NULL) {
-          YmagineFormatOptions_setFormat(options, oformat);
-          YmagineFormatOptions_setResize(options, maxWidth, maxHeight, scaleMode);
-          YmagineFormatOptions_setShader(options, shader);
-          YmagineFormatOptions_setQuality(options, quality);
-          YmagineFormatOptions_setAccuracy(options, accuracy);
-          YmagineFormatOptions_setMetaMode(options, metaMode);
-          if (subsampling >= 0) {
-            YmagineFormatOptions_setSubsampling(options, subsampling);
-          }
-          if (progressive >= 0) {
-            YmagineFormatOptions_setProgressive(options, progressive);
-          }
-          if (sharpen > 0.0f) {
-            YmagineFormatOptions_setSharpen(options, sharpen);
-          }
-          if (blur > 0.0f) {
-            YmagineFormatOptions_setBlur(options, blur);
-          }
-          if (rotate != 0.0f) {
-            YmagineFormatOptions_setRotate(options, rotate);
-          }
-          YmagineFormatOptions_setAdjust(options, adjustMode);
+        YmagineFormatOptions_setCallback(options, progressCallback);
+      }
 
-          if (absolutecrop) {
-            YmagineFormatOptions_setCrop(options, cropx, cropy, cropw, croph);
-          } else if (relativecrop) {
-            YmagineFormatOptions_setCropRelative(options, cropxp, cropyp, cropwp, crophp);
+      start_decode = NSTIME();
+      if (iformat == YMAGINE_IMAGEFORMAT_JPEG) {
+        vbitmap = VbitmapInitMemory(VBITMAP_COLOR_RGB);
+      } else {
+        vbitmap = VbitmapInitMemory(VBITMAP_COLOR_RGBA);
+      }
+      if (vbitmap != NULL) {
+        rc = YmagineDecode(vbitmap, channelin, options);
+      }
+
+      if (options != NULL) {
+        YmagineFormatOptions_Release(options);
+        options = NULL;
+      }
+
+      YchannelRelease(channelin);
+      channelin = NULL;
+
+      if (pdata != NULL) {
+        Ymem_free(pdata);
+      }
+
+      end_decode = NSTIME();
+      total_decode += (end_decode - start_decode);
+
+#if YMAGINE_PROFILE
+      if (profile) {
+        fprintf(stdout, "Decoded image %dx%d in %.2f ms\n",
+                VbitmapWidth(vbitmap), VbitmapHeight(vbitmap),
+                ((double) (end_decode - start_decode)) / 1000000.0);
+        fflush(stdout);
+      }
+#endif
+
+      if (vbitmap != NULL) {
+        int tilewidth, tileheight;
+        Vbitmap *tilebitmap;
+        Vbitmap *scaledbitmap;
+        int colormode;
+        int pitch;
+        int bpp;
+        unsigned char *pixels;
+        int tileid;
+        Ychannel *channelout;
+        YmagineFormatOptions *encodeoptions = NULL;
+        YmagineFormatOptions *scaleoptions = NULL;
+
+        VbitmapLock(vbitmap);
+
+        colormode = VbitmapColormode(vbitmap);
+        pitch = VbitmapPitch(vbitmap);
+        bpp = VbitmapBpp(vbitmap);
+        pixels = VbitmapBuffer(vbitmap);
+
+        bwidth = VbitmapWidth(vbitmap);
+        bheight = VbitmapHeight(vbitmap);
+
+        scale = 1;
+        scalelevel = 0;
+        while (scale * 256 <= bwidth && scale * 256 <= bheight) {
+          encodeoptions = YmagineFormatOptions_Create();
+          if (encodeoptions != NULL) {
+            YmagineFormatOptions_setFormat(encodeoptions, oformat);
           }
 
-          /* Set our callback for testing (no-op) */
-          if (dynamicopts) {
-            pdata = Ymem_malloc(sizeof(privateOptions));
-            if (pdata != NULL) {
-              /* Force arbitrary mode to have callback set a custom crop region */
-              pdata->mode = 1;
-              YmagineFormatOptions_setData(options, pdata);
+          scaleoptions = YmagineFormatOptions_Create();
+
+          /* Generate all tiles */
+          if (tileSize <= 0) {
+            tileSize = 256;
+          }
+
+          tileid = 0;
+          for (j = 0; j < bheight; j += tileSize * scale) {
+            tileheight = tileSize * scale;
+            if (j + tileheight > bheight) {
+              tileheight = bheight - j;
+            }
+
+            for (i = 0; i < bwidth; i += tileSize * scale) {
+              tilewidth = tileSize * scale;
+              if (j + tilewidth > bwidth) {
+                tilewidth = bwidth - j;
+              }
+
+              /* Create Vbitmap for region */
+              tilebitmap = VbitmapInitStatic(colormode, tilewidth, tileheight, pitch, pixels + pitch * j + i * bpp);
+              scaledbitmap = VbitmapInitMemory(colormode);
+
+              /* Create scaled version */
+              YmagineFormatOptions_setResize(scaleoptions, tilewidth / scale, tileheight / scale, YMAGINE_SCALE_LETTERBOX);
+              YmagineDecodeCopy(scaledbitmap, tilebitmap, scaleoptions);
+
+              /* Encode tile */  
+              if (outfile != NULL) {
+                char *tilename;
+              
+                tilename = Ymem_malloc(strlen(outfile) + 128);
+                if (tilename != NULL) {
+                  sprintf(tilename, "%s_s%02d_%d_%d.jpg", outfile, scalelevel, i, j);
+                  fdout = open(tilename, fmode, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+                  if (fdout >= 0 ) {
+                    channelout = YchannelInitFd(fdout, 1);
+                    if (channelout != NULL) {
+                      rc = YmagineEncode(scaledbitmap, channelout, encodeoptions);
+                    }
+                    YchannelRelease(channelout);
+                    close(fdout);
+                  }
+                }
+              }
+
+              tileid++;
+              ntiles++;
+
+#if YMAGINE_PROFILE
+              if (profile) {
+                fprintf(stdout, "[1/%d] #%d %dx%d -> %dx%d @%d,%d\n",
+                        scale, tileid,
+                        VbitmapWidth(tilebitmap), VbitmapHeight(tilebitmap),
+                        VbitmapWidth(scaledbitmap), VbitmapHeight(scaledbitmap),
+                        i, j);
+              }
+#endif
+
+              /* Release tile */
+              VbitmapRelease(tilebitmap);
+              VbitmapRelease(scaledbitmap);
             }
           }
 
-          YmagineFormatOptions_setCallback(options, progressCallback);
-        }
-
-        start_transcode=NSTIME();
-        if (decodeonly) {
-          Vbitmap *vbitmap;
-
-          if (iformat == YMAGINE_IMAGEFORMAT_JPEG) {
-            vbitmap = VbitmapInitMemory(VBITMAP_COLOR_RGB);
-          } else {
-            vbitmap = VbitmapInitMemory(VBITMAP_COLOR_RGBA);
+          if (encodeoptions != NULL) {
+            YmagineFormatOptions_Release(encodeoptions);
+            encodeoptions = NULL;
           }
-          if (vbitmap != NULL) {
-            rc = YmagineDecode(vbitmap, channelin, options);
+          if (scaleoptions != NULL) {
+            YmagineFormatOptions_Release(scaleoptions);
+            scaleoptions = NULL;
           }
-          VbitmapRelease(vbitmap);
-        } else {
-          rc = YmagineTranscode(channelin, channelout, options);
+
+          scale = scale * 2;
+          scalelevel++;
         }
 
-        if (options != NULL) {
-          YmagineFormatOptions_Release(options);
-        }
-        if (pdata != NULL) {
-          Ymem_free(pdata);
-        }
-
-        end_transcode=NSTIME();
-        total_transcode += (end_transcode - start_transcode);
-
-        if (channelout != NULL) {
-          YchannelRelease(channelout);
-        }
+        VbitmapUnlock(vbitmap);
+        VbitmapRelease(vbitmap);
       }
-      YchannelRelease(channelin);
     }
 
     if (closeout) {
@@ -605,10 +681,8 @@ main_transcode(int argc, const char* argv[])
 
 #if YMAGINE_PROFILE
   if (profile) {
-    fprintf(stdout, "%s image %d times in average of %.2f ms (%.2f ms total)\n",
-            decodeonly ? "Decoded" : "Transcoded",
-            niters,
-            ((double) total_transcode) / (niters * 1000000.0),
+    fprintf(stdout, "Created %d %dx%d tiles for master image %dx%d in %.2f ms\n",
+            ntiles, tileSize, tileSize, bwidth, bheight,
             ((double) (end - start)) / (niters * 1000000.0));
     fflush(stdout);
   }

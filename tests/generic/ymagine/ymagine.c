@@ -12,6 +12,10 @@
 
 #include "ymagine_main.h"
 
+#if YMAGINE_JAVASCRIPT
+#include <emscripten.h>
+#endif
+
 static void usage_seam()
 {
   printf("usage: ymagine seam [-width X] [-height X] infile ?outfile? ?seamfile?\n");
@@ -386,17 +390,23 @@ static int
 usage(const char *mode)
 {
   fprintf(stdout, "usage: ymagine mode ?-options ...? ?--? filename...\n");
-  fprintf(stdout, "supported mode: decode, info, transcode, video, seam, sobel, blur, convert, conv_profile and colorconv\n");
+  fprintf(stdout, "supported mode: decode, info, design, tile, transcode, video, seam, sobel, blur, convert, conv_profile and colorconv\n");
   fflush(stdout);
 
   return 0;
 }
+
+#if YMAGINE_JAVASCRIPT
+#define main main_ymagine_js
+#endif
 
 int main(int argc, const char* argv[])
 {
   enum command {
     COMMAND_DECODE,
     COMMAND_INFO,
+    COMMAND_DESIGN,
+    COMMAND_TILE,
     COMMAND_TRANSCODE,
     COMMAND_VIDEO,
     COMMAND_SEAM,
@@ -405,9 +415,22 @@ int main(int argc, const char* argv[])
     COMMAND_CONVERT,
     COMMAND_COLORCONV,
     COMMAND_PSNR,
+    COMMAND_SHAPE,
     COMMAND_CONVOLUTION_PROFILE,
   };
   int mode = -1;
+
+#if YMAGINE_JAVASCRIPT
+#if YMAGINE_JAVASCRIPT_CLOSURE
+  /* Initialization performed in init.js */
+#else
+  EM_ASM(
+    FS['mkdir']('/vfs');
+    FS['mount'](NODEFS, { root: '.' }, '/vfs');
+    FS['chdir']('/vfs');
+  );
+#endif
+#endif
 
   if (argc >= 2) {
     if (argv[1][0] == 'd' && strcmp(argv[1], "decode") == 0) {
@@ -415,6 +438,12 @@ int main(int argc, const char* argv[])
     }
     else if (argv[1][0] == 'i' && strcmp(argv[1], "info") == 0) {
       mode = COMMAND_INFO;
+    }
+    else if (argv[1][0] == 'd' && strcmp(argv[1], "design") == 0) {
+      mode = COMMAND_DESIGN;
+    }
+    else if (argv[1][0] == 't' && strcmp(argv[1], "tile") == 0) {
+      mode = COMMAND_TILE;
     }
     else if (argv[1][0] == 't' && strcmp(argv[1], "transcode") == 0) {
       mode = COMMAND_TRANSCODE;
@@ -440,6 +469,9 @@ int main(int argc, const char* argv[])
     else if (argv[1][0] == 'p' && strcmp(argv[1], "psnr") == 0) {
       mode = COMMAND_PSNR;
     }
+    else if (argv[1][0] == 's' && strcmp(argv[1], "shape") == 0) {
+      mode = COMMAND_SHAPE;
+    }
     else if (argv[1][0] == 'c' && strcmp(argv[1], "conv_profile") == 0) {
       mode = COMMAND_CONVOLUTION_PROFILE;
     }
@@ -455,10 +487,16 @@ int main(int argc, const char* argv[])
       return main_decode(argc - 2, argv + 2);
     case COMMAND_INFO:
       return main_info(argc - 2, argv + 2);
+    case COMMAND_DESIGN:
+      return main_design(argc - 2, argv + 2);
+    case COMMAND_TILE:
+      return main_tile(argc - 2, argv + 2);
     case COMMAND_TRANSCODE:
       return main_transcode(argc - 2, argv + 2);
+#if HAVE_PLUGIN_VIDEO
     case COMMAND_VIDEO:
       return main_video(argc - 2, argv + 2);
+#endif
     case COMMAND_SEAM:
       return main_seam(argc - 2, argv + 2);
     case COMMAND_SOBEL:
@@ -471,6 +509,8 @@ int main(int argc, const char* argv[])
       return main_colorconv(argc - 2, argv + 2);
     case COMMAND_PSNR:
       return main_psnr(argc - 2, argv + 2);
+    case COMMAND_SHAPE:
+      return main_shape(argc - 2, argv + 2);
     case COMMAND_CONVOLUTION_PROFILE:
       return main_convolution_profile(argc - 2, argv + 2);
     default:
